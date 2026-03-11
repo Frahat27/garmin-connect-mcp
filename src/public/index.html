@@ -324,6 +324,11 @@ input[type=number]{text-align:center}
       <span class="badge">IA Personal</span>
     </div>
     <div class="hdr-right">
+      <button class="btn btn-ghost" id="btnHistory" onclick="analyzeHistory()" style="font-size:12px">📊 Historial</button>
+      <button class="btn btn-ghost" id="btnMacro" onclick="generateMacroPlan()" style="font-size:12px">📋 Plan Macro</button>
+      <button class="btn btn-primary" id="btnAnalyze" onclick="generatePlan2w()" style="font-size:12px">🗓 Plan 2 Sem →</button>
+      <button class="btn btn-ghost" id="btnCargarReal" onclick="cargarReal()" disabled style="font-size:12px">🔄 Cargar Real</button>
+      <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
       <button class="btn btn-ghost" id="btnAccount" onclick="showLogin()" style="font-size:12px">⚙ Cuenta</button>
     </div>
   </header>
@@ -489,22 +494,6 @@ input[type=number]{text-align:center}
         </div>
         <div class="field"><label>Dolor nuevo / molestia</label><input type="text" id="newPainOrIssue" placeholder="Ej: tensión en pantorrilla"></div>
       </div>
-    </div>
-
-    <div class="card" style="border-color:rgba(249,115,22,.25)">
-      <div class="card-title" style="color:var(--accent)">⚡ Acciones</div>
-      <button class="btn btn-ghost btn-action" id="btnHistory" onclick="analyzeHistory()">
-        <span>📊</span><span>Analizar historial Garmin</span>
-      </button>
-      <button class="btn btn-ghost btn-action" id="btnMacro" onclick="generateMacroPlan()">
-        <span>📋</span><span>Generar Plan Macro</span>
-      </button>
-      <button class="btn btn-primary btn-action" id="btnAnalyze" onclick="generatePlan2w()">
-        <span>🗓</span><span>Generar Plan 2 Semanas →</span>
-      </button>
-      <button class="btn btn-ghost btn-action" id="btnCargarReal" onclick="cargarReal()" disabled>
-        <span>🔄</span><span>Cargar Real</span>
-      </button>
     </div>
 
   </aside>

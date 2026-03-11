@@ -522,23 +522,44 @@ let priority = 'A';
 const levels = { levelRunning:'intermedio', levelSwimming:'intermedio', levelCycling:'intermedio' };
 const availableDays = { running:[], swimming:[], cycling:[], gym:[] };
 const allSessions = [];
+let sessionToken = localStorage.getItem('sessionToken') ?? null;
 
-// ── Login ─────────────────────────────────────────────────────
-async function checkCredentials() {
-  const r = await fetch('/api/credentials').then(r => r.json());
-  if (!r.hasCredentials) {
+// ── API fetch wrapper (inyecta token en todos los requests) ────
+function apiFetch(url, options = {}) {
+  const headers = { ...(options.headers ?? {}) };
+  if (sessionToken) headers['X-Session-Token'] = sessionToken;
+  return fetch(url, { ...options, headers });
+}
+
+// ── Auth ──────────────────────────────────────────────────────
+async function checkSession() {
+  if (!sessionToken) { document.getElementById('loginOverlay').classList.remove('hidden'); return; }
+  const r = await apiFetch('/api/session').then(r => r.json()).catch(() => ({ valid: false }));
+  if (!r.valid) {
+    localStorage.removeItem('sessionToken');
+    sessionToken = null;
     document.getElementById('loginOverlay').classList.remove('hidden');
-  } else {
-    document.getElementById('loginOverlay').classList.add('hidden');
-    if (r.email) document.getElementById('btnAccount').textContent = `⚙ ${r.email}`;
-    await checkHistory();
-    await refreshPlanStatus();
+    return;
   }
+  document.getElementById('loginOverlay').classList.add('hidden');
+  if (r.email) document.getElementById('btnAccount').textContent = `⚙ ${r.email}`;
+  await checkHistory();
+  await refreshPlanStatus();
+  await restoreChatHistory();
+}
+
+async function logout() {
+  await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  localStorage.removeItem('sessionToken');
+  sessionToken = null;
+  document.getElementById('btnAccount').textContent = '⚙ Cuenta';
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  resetOutput();
 }
 
 async function refreshPlanStatus() {
   try {
-    const s = await fetch('/api/plan-status').then(r => r.json());
+    const s = await apiFetch('/api/plan-status').then(r => r.json());
     const hasPlan = s.plan !== null;
     const banner = document.getElementById('planBanner');
     const dot = document.getElementById('planDot');
@@ -555,7 +576,7 @@ async function refreshPlanStatus() {
 }
 
 async function checkHistory() {
-  const r = await fetch('/api/history-status').then(r => r.json());
+  const r = await apiFetch('/api/history-status').then(r => r.json());
   if (!r.exists) await runHistoryMapping();
 }
 
@@ -567,7 +588,7 @@ async function runHistoryMapping() {
   let progress = 5;
   fill.style.width = progress + '%';
 
-  const res = await fetch('/api/map-history', { method: 'POST' });
+  const res = await apiFetch('/api/map-history', { method: 'POST' });
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = '';
@@ -603,6 +624,7 @@ async function runHistoryMapping() {
 }
 
 function showLogin() {
+  if (sessionToken) { if (confirm('¿Cerrar sesión?')) logout(); return; }
   document.getElementById('loginError').textContent = '';
   document.getElementById('loginOverlay').classList.remove('hidden');
 }
@@ -614,17 +636,20 @@ async function submitLogin() {
   const err = document.getElementById('loginError');
   if (!email || !password || !anthropicKey) { err.textContent = 'Completá los tres campos.'; return; }
   err.textContent = '';
-  const r = await fetch('/api/credentials', {
-    method:'POST', headers:{'Content-Type':'application/json'},
+  const r = await fetch('/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, anthropicKey }),
   }).then(r => r.json());
-  if (r.ok) {
+  if (r.token) {
+    sessionToken = r.token;
+    localStorage.setItem('sessionToken', r.token);
     document.getElementById('loginOverlay').classList.add('hidden');
     document.getElementById('btnAccount').textContent = `⚙ ${email}`;
     await checkHistory();
     await refreshPlanStatus();
+    await restoreChatHistory();
   } else {
-    err.textContent = 'Error al guardar.';
+    err.textContent = r.error || 'Error al iniciar sesión.';
   }
 }
 document.addEventListener('keydown', e => {
@@ -665,9 +690,9 @@ function setAvailableDays(sport, days) {
 
 // ── Init ──────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
-  await checkCredentials();
+  await checkSession();
   try {
-    const p = await fetch('/api/profile').then(r => r.json());
+    const p = await apiFetch('/api/profile').then(r => r.json());
     if (p) fillForm(p);
   } catch {}
 });
@@ -854,6 +879,29 @@ function closeModal() { document.getElementById('sessionModal').classList.add('h
 let chatHistory = [];
 let chatStreaming = false;
 
+async function restoreChatHistory() {
+  try {
+    const history = await apiFetch('/api/chat-history').then(r => r.json());
+    if (!Array.isArray(history) || history.length === 0) return;
+    chatHistory = history;
+    const msgs = document.getElementById('chatMessages');
+    const empty = document.getElementById('chatEmpty');
+    if (empty) empty.remove();
+    for (const msg of history) {
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${msg.role}`;
+      if (msg.role === 'assistant') {
+        bubble.innerHTML = md2html(stripJsonBlocks(msg.content));
+      } else {
+        bubble.textContent = msg.content;
+      }
+      msgs.appendChild(bubble);
+    }
+    const exchanges = Math.floor(history.length / 2);
+    if (exchanges > 0) document.getElementById('tabBtnChat').textContent = `💬 Chat (${exchanges})`;
+  } catch {}
+}
+
 function clearChat() {
   chatHistory = [];
   chatStreaming = false;
@@ -862,6 +910,7 @@ function clearChat() {
   document.getElementById('tabBtnChat').textContent = '💬 Chat';
   document.getElementById('btnChatSend').disabled = false;
   document.getElementById('chatInput').disabled = false;
+  apiFetch('/api/chat-history', { method: 'DELETE' }).catch(() => {});
 }
 
 function chatKeydown(e) {
@@ -902,7 +951,7 @@ async function sendChatMessage() {
   let fullText = '';
 
   try {
-    const res = await fetch('/api/chat', {
+    const res = await apiFetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: chatHistory, profile, checkin }),
@@ -984,14 +1033,14 @@ async function analyze() {
   clearChat();
   showTab('analysis');
 
-  await fetch('/api/plan', { method: 'DELETE' }).catch(() => {});
+  await apiFetch('/api/plan', { method: 'DELETE' }).catch(() => {});
   await refreshPlanStatus();
 
   const { profile, checkin } = collectData();
   let fullText = '';
 
   try {
-    const res = await fetch('/api/analyze', {
+    const res = await apiFetch('/api/analyze', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ profile, checkin }),
     });
@@ -1026,7 +1075,7 @@ async function analyze() {
             renderCalendar(planJson, false);
             document.getElementById('tabBtnCalendar').textContent = planJson ? '📅 Calendario ✓' : '📅 Calendario ⚠';
             if (planJson) {
-              await fetch('/api/save-plan', {
+              await apiFetch('/api/save-plan', {
                 method: 'POST', headers: {'Content-Type':'application/json'},
                 body: JSON.stringify(planJson),
               }).catch(() => {});
@@ -1070,7 +1119,7 @@ async function update() {
   let gotPlanUpdate = false;
 
   try {
-    const res = await fetch('/api/review', {
+    const res = await apiFetch('/api/review', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile, checkin }),
     });

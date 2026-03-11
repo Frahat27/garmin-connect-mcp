@@ -1,64 +1,97 @@
-import { createServer } from 'http';
+import { createServer, IncomingMessage } from 'http';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { GarminClient } from './client';
 import {
   fetchGarminData, buildUserMessage, buildReviewMessage, buildChatSystemPrompt,
   COACH_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT,
-  generateHistoryContext, historyExists,
+  generateHistoryContext, historyExists, historyFilePath,
   loadPlan, savePlan, deletePlan, getPlanStatus,
 } from './coach/index';
 import type { AthleteProfile, DailyCheckin } from './coach/index';
 
 const PORT = parseInt(process.env.PORT ?? '3005');
-const ANTHROPIC_API_KEY_ENV = process.env.ANTHROPIC_API_KEY ?? null;
-
-const PROFILE_DIR = process.env.PROFILE_DIR ?? join(homedir(), '.garmin-mcp');
-const PROFILE_PATH = join(PROFILE_DIR, 'athlete-profile.json');
-const CREDS_PATH = join(PROFILE_DIR, 'credentials.json');
+const DATA_DIR = process.env.PROFILE_DIR ?? join(homedir(), '.garmin-mcp');
+const SESSIONS_FILE = join(DATA_DIR, 'sessions.json');
 const __dir = dirname(fileURLToPath(import.meta.url));
 
-type Credentials = { email: string; password: string; anthropicKey: string };
+type Session = {
+  token: string;
+  email: string;
+  password: string;
+  anthropicKey: string;
+  lastSeen: number;
+};
 
-function ensureDir(): void {
-  if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
+const sessions = new Map<string, Session>();
+
+function loadSessions(): void {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    if (existsSync(SESSIONS_FILE)) {
+      const data = JSON.parse(readFileSync(SESSIONS_FILE, 'utf-8')) as Session[];
+      const now = Date.now();
+      const thirtyDays = 30 * 24 * 3600 * 1000;
+      for (const s of data) {
+        if (now - s.lastSeen < thirtyDays) sessions.set(s.token, s);
+      }
+    }
+  } catch {}
 }
 
-function loadCredentials(): Credentials | null {
+function saveSessions(): void {
   try {
-    if (process.env.GARMIN_EMAIL && process.env.GARMIN_PASSWORD && ANTHROPIC_API_KEY_ENV) {
-      return { email: process.env.GARMIN_EMAIL, password: process.env.GARMIN_PASSWORD, anthropicKey: ANTHROPIC_API_KEY_ENV };
-    }
-    if (existsSync(CREDS_PATH)) {
-      const saved = JSON.parse(readFileSync(CREDS_PATH, 'utf-8')) as Credentials;
-      if (ANTHROPIC_API_KEY_ENV) saved.anthropicKey = ANTHROPIC_API_KEY_ENV;
-      return saved;
-    }
+    writeFileSync(SESSIONS_FILE, JSON.stringify([...sessions.values()], null, 2));
+  } catch {}
+}
+
+function getUserDir(email: string): string {
+  const safe = email.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const dir = join(DATA_DIR, 'users', safe);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function getSession(req: IncomingMessage): Session | null {
+  const token = req.headers['x-session-token'] as string | undefined;
+  if (!token) return null;
+  const session = sessions.get(token);
+  if (!session) return null;
+  session.lastSeen = Date.now();
+  return session;
+}
+
+function loadProfile(uDir: string): AthleteProfile | null {
+  try {
+    const path = join(uDir, 'athlete-profile.json');
+    if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8')) as AthleteProfile;
   } catch {}
   return null;
 }
 
-function saveCredentials(creds: Credentials): void {
-  ensureDir();
-  writeFileSync(CREDS_PATH, JSON.stringify(creds, null, 2), 'utf-8');
+function saveProfile(uDir: string, profile: AthleteProfile): void {
+  writeFileSync(join(uDir, 'athlete-profile.json'), JSON.stringify(profile, null, 2), 'utf-8');
 }
 
-function loadProfile(): AthleteProfile | null {
+function saveChatHistory(uDir: string, messages: Array<{ role: string; content: string }>): void {
   try {
-    if (existsSync(PROFILE_PATH)) return JSON.parse(readFileSync(PROFILE_PATH, 'utf-8')) as AthleteProfile;
+    writeFileSync(join(uDir, 'chat-history.json'), JSON.stringify(messages, null, 2), 'utf-8');
   } catch {}
-  return null;
 }
 
-function saveProfile(profile: AthleteProfile): void {
-  ensureDir();
-  writeFileSync(PROFILE_PATH, JSON.stringify(profile, null, 2), 'utf-8');
+function loadChatHistory(uDir: string): Array<{ role: string; content: string }> {
+  try {
+    const path = join(uDir, 'chat-history.json');
+    if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8'));
+  } catch {}
+  return [];
 }
 
-async function readBody(req: import('http').IncomingMessage): Promise<string> {
+async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on('data', c => chunks.push(c as Buffer));
@@ -66,6 +99,17 @@ async function readBody(req: import('http').IncomingMessage): Promise<string> {
     req.on('error', reject);
   });
 }
+
+async function getHistoryContext(uDir: string, email: string): Promise<string | undefined> {
+  try {
+    if (historyExists(uDir, email)) {
+      return readFileSync(historyFilePath(uDir, email), 'utf-8');
+    }
+  } catch {}
+  return undefined;
+}
+
+loadSessions();
 
 const HTML = readFileSync(join(__dir, 'public/index.html'), 'utf-8');
 
@@ -79,61 +123,104 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (method === 'GET' && url === '/api/credentials') {
-    const creds = loadCredentials();
-    const complete = creds !== null && !!creds.email && !!creds.password && !!creds.anthropicKey;
+  if (method === 'POST' && url === '/api/auth/login') {
+    const { email, password, anthropicKey } = JSON.parse(await readBody(req)) as {
+      email: string; password: string; anthropicKey: string;
+    };
+    if (!email || !password || !anthropicKey) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Completá los tres campos.' }));
+      return;
+    }
+    const existing = [...sessions.values()].find(s => s.email === email);
+    const token = existing?.token ?? randomUUID();
+    const session: Session = { token, email, password, anthropicKey, lastSeen: Date.now() };
+    sessions.set(token, session);
+    saveSessions();
+    getUserDir(email);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ hasCredentials: complete, email: creds?.email ?? null }));
+    res.end(JSON.stringify({ token, email }));
     return;
   }
 
-  if (method === 'POST' && url === '/api/credentials') {
-    const { email, password, anthropicKey } = JSON.parse(await readBody(req)) as Credentials;
-    saveCredentials({ email, password, anthropicKey });
+  if (method === 'POST' && url === '/api/auth/logout') {
+    const session = getSession(req);
+    if (session) { sessions.delete(session.token); saveSessions(); }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     return;
   }
 
-  if (method === 'DELETE' && url === '/api/credentials') {
-    try { writeFileSync(CREDS_PATH, JSON.stringify({})); } catch {}
+  if (method === 'GET' && url === '/api/session') {
+    const session = getSession(req);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
+    res.end(JSON.stringify({ valid: !!session, email: session?.email ?? null }));
     return;
   }
 
   if (method === 'GET' && url === '/api/history-status') {
-    const creds = loadCredentials();
-    const exists = creds?.email ? historyExists(PROFILE_DIR, creds.email) : false;
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const uDir = getUserDir(session.email);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ exists }));
+    res.end(JSON.stringify({ exists: historyExists(uDir, session.email) }));
     return;
   }
 
   if (method === 'GET' && url === '/api/plan-status') {
-    const creds = loadCredentials();
-    const plan = creds?.email ? loadPlan(PROFILE_DIR, creds.email) : null;
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const uDir = getUserDir(session.email);
     const today = new Date().toISOString().split('T')[0];
-    const status = getPlanStatus(plan, today);
+    const plan = loadPlan(uDir, session.email);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(status));
+    res.end(JSON.stringify(getPlanStatus(plan, today)));
     return;
   }
 
   if (method === 'DELETE' && url === '/api/plan') {
-    const creds = loadCredentials();
-    if (creds?.email) deletePlan(PROFILE_DIR, creds.email);
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    deletePlan(getUserDir(session.email), session.email);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     return;
   }
 
   if (method === 'POST' && url === '/api/save-plan') {
-    const creds = loadCredentials();
-    if (!creds?.email) { res.writeHead(401); res.end(); return; }
-    ensureDir();
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
     const planData = JSON.parse(await readBody(req)) as Record<string, unknown>;
-    savePlan(PROFILE_DIR, creds.email, planData);
+    savePlan(getUserDir(session.email), session.email, planData);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (method === 'GET' && url === '/api/profile') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(loadProfile(getUserDir(session.email))));
+    return;
+  }
+
+  if (method === 'GET' && url === '/api/chat-history') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(loadChatHistory(getUserDir(session.email))));
+    return;
+  }
+
+  if (method === 'DELETE' && url === '/api/chat-history') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    try {
+      const { unlinkSync } = await import('fs');
+      const path = join(getUserDir(session.email), 'chat-history.json');
+      if (existsSync(path)) unlinkSync(path);
+    } catch {}
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     return;
@@ -149,14 +236,14 @@ const server = createServer(async (req, res) => {
       res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
     };
     try {
-      const creds = loadCredentials();
-      if (!creds?.email || !creds?.password) { send('error', { message: 'Sin credenciales.' }); res.end(); return; }
-      if (historyExists(PROFILE_DIR, creds.email)) { send('done', { existed: true }); res.end(); return; }
-
+      const session = getSession(req);
+      if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
+      const uDir = getUserDir(session.email);
+      if (historyExists(uDir, session.email)) { send('done', { existed: true }); res.end(); return; }
       await generateHistoryContext(
-        new GarminClient(creds.email, creds.password),
-        PROFILE_DIR,
-        creds.email,
+        new GarminClient(session.email, session.password),
+        uDir,
+        session.email,
         (msg) => send('status', { message: msg }),
       );
       send('done', { existed: false });
@@ -167,52 +254,34 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (method === 'GET' && url === '/api/profile') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(loadProfile()));
-    return;
-  }
-
-  if (method === 'POST' && url === '/api/analyze') {
+  const makeSSE = (): (type: string, data?: Record<string, unknown>) => void => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     });
-    const send = (type: string, data: Record<string, unknown> = {}): void => {
-      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
-    };
+    return (type, data = {}) => res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+  };
+
+  if (method === 'POST' && url === '/api/analyze') {
+    const send = makeSSE();
     try {
-      const creds = loadCredentials();
-      if (!creds?.email || !creds?.password || !creds?.anthropicKey) {
-        send('error', { message: 'Faltan credenciales. Ingresalas desde ⚙ Cuenta.' });
-        res.end(); return;
-      }
+      const session = getSession(req);
+      if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
+      const uDir = getUserDir(session.email);
 
       const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
-      saveProfile({ ...profile, savedAt: new Date().toISOString() });
+      saveProfile(uDir, { ...profile, savedAt: new Date().toISOString() });
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(creds.email, creds.password));
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando plan...` });
 
-      let historyContext: string | undefined;
-      try {
-        if (historyExists(PROFILE_DIR, creds.email)) {
-          const { readFileSync: rfs } = await import('fs');
-          const { historyFilePath } = await import('./coach/index');
-          historyContext = rfs(historyFilePath(PROFILE_DIR, creds.email), 'utf-8');
-        }
-      } catch {}
-
-      const systemPrompt = COACH_SYSTEM_PROMPT;
-      const userMessage = buildUserMessage(profile, checkin, garminData, historyContext);
-
-      const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
+      const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
+        system: COACH_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData, await getHistoryContext(uDir, session.email)) }],
       });
 
       stream.on('text', (text: string) => send('text', { content: text }));
@@ -226,22 +295,12 @@ const server = createServer(async (req, res) => {
   }
 
   if (method === 'POST' && url === '/api/review') {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
-    const send = (type: string, data: Record<string, unknown> = {}): void => {
-      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
-    };
+    const send = makeSSE();
     try {
-      const creds = loadCredentials();
-      if (!creds?.email || !creds?.password || !creds?.anthropicKey) {
-        send('error', { message: 'Faltan credenciales.' });
-        res.end(); return;
-      }
-
-      const currentPlan = loadPlan(PROFILE_DIR, creds.email);
+      const session = getSession(req);
+      if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
+      const uDir = getUserDir(session.email);
+      const currentPlan = loadPlan(uDir, session.email);
       if (!currentPlan) {
         send('error', { message: 'No hay plan activo. Generá uno con Analizar primero.' });
         res.end(); return;
@@ -250,45 +309,30 @@ const server = createServer(async (req, res) => {
       const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(creds.email, creds.password));
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Cruzando plan vs real...` });
 
-      let historyContext: string | undefined;
-      try {
-        if (historyExists(PROFILE_DIR, creds.email)) {
-          const { readFileSync: rfs } = await import('fs');
-          const { historyFilePath } = await import('./coach/index');
-          historyContext = rfs(historyFilePath(PROFILE_DIR, creds.email), 'utf-8');
-        }
-      } catch {}
-
-      const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
+      const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
         system: REVIEW_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildReviewMessage(profile, checkin, garminData, currentPlan, historyContext) }],
+        messages: [{ role: 'user', content: buildReviewMessage(profile, checkin, garminData, currentPlan, await getHistoryContext(uDir, session.email)) }],
       });
 
       let fullText = '';
-      stream.on('text', (text: string) => {
-        fullText += text;
-        send('text', { content: text });
-      });
+      stream.on('text', (text: string) => { fullText += text; send('text', { content: text }); });
       await stream.finalMessage();
 
-      const re = /\[REVIEW_JSON\]([\s\S]*?)\[\/REVIEW_JSON\]/;
-      const m = fullText.match(re);
-      if (m) {
-        let raw = m[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-        const start = raw.indexOf('{');
-        if (start > 0) raw = raw.slice(start);
+      const rm = fullText.match(/\[REVIEW_JSON\]([\s\S]*?)\[\/REVIEW_JSON\]/);
+      if (rm) {
+        let raw = rm[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+        const s = raw.indexOf('{'); if (s > 0) raw = raw.slice(s);
         try {
-          const reviewJson = JSON.parse(raw) as Record<string, unknown>;
-          savePlan(PROFILE_DIR, creds.email, reviewJson);
-          send('plan_update', { plan: reviewJson });
+          const rj = JSON.parse(raw) as Record<string, unknown>;
+          savePlan(uDir, session.email, rj);
+          send('plan_update', { plan: rj });
         } catch {}
       }
-
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });
@@ -298,20 +342,11 @@ const server = createServer(async (req, res) => {
   }
 
   if (method === 'POST' && url === '/api/chat') {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    });
-    const send = (type: string, data: Record<string, unknown> = {}): void => {
-      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
-    };
+    const send = makeSSE();
     try {
-      const creds = loadCredentials();
-      if (!creds?.email || !creds?.password || !creds?.anthropicKey) {
-        send('error', { message: 'Faltan credenciales.' });
-        res.end(); return;
-      }
+      const session = getSession(req);
+      if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
+      const uDir = getUserDir(session.email);
 
       const { messages, profile, checkin } = JSON.parse(await readBody(req)) as {
         messages: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -320,10 +355,10 @@ const server = createServer(async (req, res) => {
       };
 
       const today = new Date().toISOString().split('T')[0];
-      const currentPlan = loadPlan(PROFILE_DIR, creds.email);
+      const currentPlan = loadPlan(uDir, session.email);
       const systemPrompt = buildChatSystemPrompt(profile, checkin, currentPlan, today);
 
-      const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
+      const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 8192,
         system: systemPrompt,
@@ -331,25 +366,21 @@ const server = createServer(async (req, res) => {
       });
 
       let fullText = '';
-      stream.on('text', (text: string) => {
-        fullText += text;
-        send('text', { content: text });
-      });
+      stream.on('text', (text: string) => { fullText += text; send('text', { content: text }); });
       await stream.finalMessage();
 
-      const re = /\[PLAN_JSON\]([\s\S]*?)\[\/PLAN_JSON\]/;
-      const m = fullText.match(re);
-      if (m) {
-        let raw = m[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-        const start = raw.indexOf('{');
-        if (start > 0) raw = raw.slice(start);
+      const pm = fullText.match(/\[PLAN_JSON\]([\s\S]*?)\[\/PLAN_JSON\]/);
+      if (pm) {
+        let raw = pm[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+        const s = raw.indexOf('{'); if (s > 0) raw = raw.slice(s);
         try {
-          const planJson = JSON.parse(raw) as Record<string, unknown>;
-          savePlan(PROFILE_DIR, creds.email, planJson);
-          send('plan_update', { plan: planJson });
+          const pj = JSON.parse(raw) as Record<string, unknown>;
+          savePlan(uDir, session.email, pj);
+          send('plan_update', { plan: pj });
         } catch {}
       }
 
+      saveChatHistory(uDir, [...messages, { role: 'assistant', content: fullText }]);
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });
@@ -363,5 +394,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  🏃 Garmin Coach corriendo en http://localhost:${PORT}\n`);
+  console.error(`\n  🏃 Garmin Coach corriendo en http://localhost:${PORT}\n`);
 });

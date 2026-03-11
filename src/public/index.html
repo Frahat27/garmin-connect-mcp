@@ -227,8 +227,20 @@ input[type=number]{text-align:center}
 .modal-badge{background:var(--surface2);border:1px solid var(--border);border-radius:20px;
   padding:3px 10px;font-size:11px;color:var(--muted)}
 .modal-badge.rpe{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
-.modal-detail{font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap;
-  background:var(--surface2);border-radius:8px;padding:14px;border:1px solid var(--border)}
+.modal-detail{font-size:13px;line-height:1.8;color:var(--text)}
+.modal-sections{display:flex;flex-direction:column;gap:8px}
+.modal-section{border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+.modal-section-hdr{display:flex;align-items:center;gap:7px;padding:7px 12px;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+.modal-section-body{padding:12px 14px;font-size:13px;line-height:1.8;background:var(--surface2);color:var(--text)}
+.modal-section.warmup{border-color:rgba(249,115,22,.35)}
+.modal-section.warmup .modal-section-hdr{background:rgba(249,115,22,.12);color:var(--accent)}
+.modal-section.main{border-color:rgba(63,185,80,.3)}
+.modal-section.main .modal-section-hdr{background:rgba(63,185,80,.1);color:var(--green)}
+.modal-section.cooldown{border-color:rgba(88,166,255,.25)}
+.modal-section.cooldown .modal-section-hdr{background:rgba(88,166,255,.08);color:#79c0ff}
+.modal-section.notes{border-color:var(--border)}
+.modal-section.notes .modal-section-hdr{background:var(--surface);color:var(--muted)}
 </style>
 </head>
 <body>
@@ -842,6 +854,45 @@ function renderCalendar(plan, isReview = false) {
   container.innerHTML = html;
 }
 
+// ── Session detail renderer ────────────────────────────────────
+function esc(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderSessionDetail(text) {
+  if (!text) return '';
+  const MARKERS = [
+    { re: /entrada en calor\s*[:\-–]/i,  icon: '🔥', label: 'Entrada en calor', cls: 'warmup' },
+    { re: /calentamiento\s*[:\-–]/i,     icon: '🔥', label: 'Calentamiento',    cls: 'warmup' },
+    { re: /set principal\s*[:\-–]/i,     icon: '⚡', label: 'Set principal',    cls: 'main'   },
+    { re: /parte principal\s*[:\-–]/i,   icon: '⚡', label: 'Parte principal',  cls: 'main'   },
+    { re: /trabajo principal\s*[:\-–]/i, icon: '⚡', label: 'Trabajo principal',cls: 'main'   },
+    { re: /vuelta a la calma\s*[:\-–]/i, icon: '🧘', label: 'Vuelta a la calma',cls: 'cooldown'},
+    { re: /enfriamiento\s*[:\-–]/i,      icon: '🧘', label: 'Enfriamiento',     cls: 'cooldown'},
+  ];
+  const hits = [];
+  for (const m of MARKERS) {
+    const match = text.match(m.re);
+    if (match) hits.push({ index: match.index, len: match[0].length, icon: m.icon, label: m.label, cls: m.cls });
+  }
+  hits.sort((a, b) => a.index - b.index);
+  if (hits.length === 0) {
+    return `<div class="modal-sections"><div class="modal-section notes"><div class="modal-section-hdr"><span>📋</span> Detalle</div><div class="modal-section-body">${esc(text)}</div></div></div>`;
+  }
+  const parts = [];
+  if (hits[0].index > 0) {
+    const pre = text.slice(0, hits[0].index).trim();
+    if (pre) parts.push({ icon: '📋', label: 'General', cls: 'notes', content: pre });
+  }
+  for (let i = 0; i < hits.length; i++) {
+    const start = hits[i].index + hits[i].len;
+    const end = i + 1 < hits.length ? hits[i + 1].index : text.length;
+    const content = text.slice(start, end).trim();
+    if (content) parts.push({ icon: hits[i].icon, label: hits[i].label, cls: hits[i].cls, content });
+  }
+  return '<div class="modal-sections">' + parts.map(p =>
+    `<div class="modal-section ${p.cls}"><div class="modal-section-hdr"><span>${p.icon}</span> ${p.label}</div><div class="modal-section-body">${esc(p.content)}</div></div>`
+  ).join('') + '</div>';
+}
+
 function openSession(idx) {
   const s = allSessions[idx];
   if (!s) return;
@@ -873,7 +924,7 @@ function openSession(idx) {
     realEl.style.display = 'none';
   }
 
-  document.getElementById('modalDetail').textContent = s.detalle || '';
+  document.getElementById('modalDetail').innerHTML = renderSessionDetail(s.detalle || '');
   document.getElementById('sessionModal').classList.remove('hidden');
 }
 function closeModal() { document.getElementById('sessionModal').classList.add('hidden'); }

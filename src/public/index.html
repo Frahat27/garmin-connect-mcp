@@ -232,7 +232,12 @@ input[type=number]{text-align:center}
 .modal-section{border-radius:8px;overflow:hidden;border:1px solid var(--border)}
 .modal-section-hdr{display:flex;align-items:center;gap:7px;padding:7px 12px;
   font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
-.modal-section-body{padding:12px 14px;font-size:13px;line-height:1.8;background:var(--surface2);color:var(--text)}
+.modal-section-body{padding:10px 12px;background:var(--surface2);color:var(--text)}
+.modal-item-list{display:flex;flex-direction:column;gap:5px}
+.modal-item{display:flex;align-items:flex-start;gap:8px;padding:7px 10px;
+  background:rgba(255,255,255,.04);border-radius:6px;font-size:13px;line-height:1.5}
+.modal-item::before{content:'▸';color:var(--muted);flex-shrink:0;margin-top:1px;font-size:11px}
+.modal-item-single{padding:10px 12px;font-size:13px;line-height:1.7}
 .modal-section.warmup{border-color:rgba(249,115,22,.35)}
 .modal-section.warmup .modal-section-hdr{background:rgba(249,115,22,.12);color:var(--accent)}
 .modal-section.main{border-color:rgba(63,185,80,.3)}
@@ -857,6 +862,41 @@ function renderCalendar(plan, isReview = false) {
 // ── Session detail renderer ────────────────────────────────────
 function esc(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function splitItems(text) {
+  if (!text) return [];
+  // Already has line breaks — split on those
+  if (/\n/.test(text)) {
+    return text.split('\n').map(s => s.replace(/^[-•·\s]+/, '').trim()).filter(Boolean);
+  }
+  // Split on ", " or ". " where the next char is uppercase or digit (exercise boundary)
+  const items = [];
+  let buf = '';
+  for (let i = 0; i < text.length; i++) {
+    buf += text[i];
+    const isSep = (text[i] === ',' || text[i] === '.') && text[i + 1] === ' ';
+    if (isSep) {
+      const next = text[i + 2];
+      if (next && /[A-ZÁÉÍÓÚÑ0-9]/.test(next)) {
+        items.push(buf.replace(/[,.]$/, '').trim());
+        buf = '';
+        i++; // skip the space
+      }
+    }
+  }
+  if (buf.trim()) items.push(buf.trim());
+  return items.filter(Boolean);
+}
+
+function renderSectionBody(content) {
+  const items = splitItems(content);
+  if (items.length <= 1) {
+    return `<div class="modal-section-body modal-item-single">${esc(content)}</div>`;
+  }
+  return `<div class="modal-section-body"><div class="modal-item-list">${
+    items.map(it => `<div class="modal-item">${esc(it)}</div>`).join('')
+  }</div></div>`;
+}
+
 function renderSessionDetail(text) {
   if (!text) return '';
   const MARKERS = [
@@ -875,7 +915,7 @@ function renderSessionDetail(text) {
   }
   hits.sort((a, b) => a.index - b.index);
   if (hits.length === 0) {
-    return `<div class="modal-sections"><div class="modal-section notes"><div class="modal-section-hdr"><span>📋</span> Detalle</div><div class="modal-section-body">${esc(text)}</div></div></div>`;
+    return `<div class="modal-sections"><div class="modal-section notes"><div class="modal-section-hdr"><span>📋</span> Detalle</div>${renderSectionBody(text)}</div></div>`;
   }
   const parts = [];
   if (hits[0].index > 0) {
@@ -889,7 +929,7 @@ function renderSessionDetail(text) {
     if (content) parts.push({ icon: hits[i].icon, label: hits[i].label, cls: hits[i].cls, content });
   }
   return '<div class="modal-sections">' + parts.map(p =>
-    `<div class="modal-section ${p.cls}"><div class="modal-section-hdr"><span>${p.icon}</span> ${p.label}</div><div class="modal-section-body">${esc(p.content)}</div></div>`
+    `<div class="modal-section ${p.cls}"><div class="modal-section-hdr"><span>${p.icon}</span> ${p.label}</div>${renderSectionBody(p.content)}</div>`
   ).join('') + '</div>';
 }
 

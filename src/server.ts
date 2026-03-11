@@ -6,10 +6,10 @@ import { fileURLToPath } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { GarminClient } from './client';
 import {
-  fetchGarminData, buildUserMessage, buildReviewMessage,
-  COACH_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT, PLANNING_WITH_REVIEW_SYSTEM_PROMPT,
+  fetchGarminData, buildUserMessage, buildReviewMessage, buildChatSystemPrompt,
+  COACH_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT,
   generateHistoryContext, historyExists,
-  loadPlan, savePlan, getPlanStatus,
+  loadPlan, savePlan, deletePlan, getPlanStatus,
 } from './coach/index';
 import type { AthleteProfile, DailyCheckin } from './coach/index';
 
@@ -120,6 +120,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (method === 'DELETE' && url === '/api/plan') {
+    const creds = loadCredentials();
+    if (creds?.email) deletePlan(PROFILE_DIR, creds.email);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
   if (method === 'POST' && url === '/api/save-plan') {
     const creds = loadCredentials();
     if (!creds?.email) { res.writeHead(401); res.end(); return; }
@@ -184,15 +192,9 @@ const server = createServer(async (req, res) => {
       const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
       saveProfile({ ...profile, savedAt: new Date().toISOString() });
 
-      const today = new Date().toISOString().split('T')[0];
-      const currentPlan = loadPlan(PROFILE_DIR, creds.email);
-      const planStatus = getPlanStatus(currentPlan, today);
-
-      send('mode', { value: planStatus.mode, daysRemaining: planStatus.daysRemaining, planEndDate: planStatus.planEndDate });
-
       send('status', { message: 'Conectando a Garmin Connect...' });
       const garminData = await fetchGarminData(new GarminClient(creds.email, creds.password));
-      send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Analizando con IA...` });
+      send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando plan...` });
 
       let historyContext: string | undefined;
       try {
@@ -203,31 +205,151 @@ const server = createServer(async (req, res) => {
         }
       } catch {}
 
-      let systemPrompt: string;
-      let userMessage: string;
-
-      if (planStatus.mode === 'review' && currentPlan) {
-        systemPrompt = REVIEW_SYSTEM_PROMPT;
-        userMessage = buildReviewMessage(profile, checkin, garminData, currentPlan, historyContext);
-        send('status', { message: 'Cruzando actividades vs plan...' });
-      } else if (planStatus.mode === 'planning_with_review' && currentPlan) {
-        systemPrompt = PLANNING_WITH_REVIEW_SYSTEM_PROMPT;
-        userMessage = buildUserMessage(profile, checkin, garminData, historyContext, currentPlan);
-        send('status', { message: 'Revisando plan anterior y generando el siguiente...' });
-      } else {
-        systemPrompt = COACH_SYSTEM_PROMPT;
-        userMessage = buildUserMessage(profile, checkin, garminData, historyContext);
-      }
+      const systemPrompt = COACH_SYSTEM_PROMPT;
+      const userMessage = buildUserMessage(profile, checkin, garminData, historyContext);
 
       const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
-        max_tokens: 8192,
+        max_tokens: 16000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       });
 
       stream.on('text', (text: string) => send('text', { content: text }));
       await stream.finalMessage();
+      send('done');
+    } catch (e) {
+      send('error', { message: e instanceof Error ? e.message : String(e) });
+    }
+    res.end();
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/review') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    const send = (type: string, data: Record<string, unknown> = {}): void => {
+      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    };
+    try {
+      const creds = loadCredentials();
+      if (!creds?.email || !creds?.password || !creds?.anthropicKey) {
+        send('error', { message: 'Faltan credenciales.' });
+        res.end(); return;
+      }
+
+      const currentPlan = loadPlan(PROFILE_DIR, creds.email);
+      if (!currentPlan) {
+        send('error', { message: 'No hay plan activo. Generá uno con Analizar primero.' });
+        res.end(); return;
+      }
+
+      const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
+
+      send('status', { message: 'Conectando a Garmin Connect...' });
+      const garminData = await fetchGarminData(new GarminClient(creds.email, creds.password));
+      send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Cruzando plan vs real...` });
+
+      let historyContext: string | undefined;
+      try {
+        if (historyExists(PROFILE_DIR, creds.email)) {
+          const { readFileSync: rfs } = await import('fs');
+          const { historyFilePath } = await import('./coach/index');
+          historyContext = rfs(historyFilePath(PROFILE_DIR, creds.email), 'utf-8');
+        }
+      } catch {}
+
+      const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
+        model: 'claude-opus-4-6',
+        max_tokens: 16000,
+        system: REVIEW_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: buildReviewMessage(profile, checkin, garminData, currentPlan, historyContext) }],
+      });
+
+      let fullText = '';
+      stream.on('text', (text: string) => {
+        fullText += text;
+        send('text', { content: text });
+      });
+      await stream.finalMessage();
+
+      const re = /\[REVIEW_JSON\]([\s\S]*?)\[\/REVIEW_JSON\]/;
+      const m = fullText.match(re);
+      if (m) {
+        let raw = m[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+        const start = raw.indexOf('{');
+        if (start > 0) raw = raw.slice(start);
+        try {
+          const reviewJson = JSON.parse(raw) as Record<string, unknown>;
+          savePlan(PROFILE_DIR, creds.email, reviewJson);
+          send('plan_update', { plan: reviewJson });
+        } catch {}
+      }
+
+      send('done');
+    } catch (e) {
+      send('error', { message: e instanceof Error ? e.message : String(e) });
+    }
+    res.end();
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/chat') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    const send = (type: string, data: Record<string, unknown> = {}): void => {
+      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    };
+    try {
+      const creds = loadCredentials();
+      if (!creds?.email || !creds?.password || !creds?.anthropicKey) {
+        send('error', { message: 'Faltan credenciales.' });
+        res.end(); return;
+      }
+
+      const { messages, profile, checkin } = JSON.parse(await readBody(req)) as {
+        messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+        profile: AthleteProfile;
+        checkin: DailyCheckin;
+      };
+
+      const today = new Date().toISOString().split('T')[0];
+      const currentPlan = loadPlan(PROFILE_DIR, creds.email);
+      const systemPrompt = buildChatSystemPrompt(profile, checkin, currentPlan, today);
+
+      const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
+        model: 'claude-opus-4-6',
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages,
+      });
+
+      let fullText = '';
+      stream.on('text', (text: string) => {
+        fullText += text;
+        send('text', { content: text });
+      });
+      await stream.finalMessage();
+
+      const re = /\[PLAN_JSON\]([\s\S]*?)\[\/PLAN_JSON\]/;
+      const m = fullText.match(re);
+      if (m) {
+        let raw = m[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+        const start = raw.indexOf('{');
+        if (start > 0) raw = raw.slice(start);
+        try {
+          const planJson = JSON.parse(raw) as Record<string, unknown>;
+          savePlan(PROFILE_DIR, creds.email, planJson);
+          send('plan_update', { plan: planJson });
+        } catch {}
+      }
+
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });

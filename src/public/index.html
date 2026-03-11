@@ -141,6 +141,17 @@ input[type=number]{text-align:center}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 .error-box{padding:12px 16px;background:rgba(248,81,73,.08);border:1px solid var(--red);border-radius:8px;color:var(--red);font-size:13px}
 
+/* ── Plan status banner ── */
+.plan-banner{display:flex;align-items:center;gap:10px;padding:7px 14px;
+  background:var(--surface);border-bottom:1px solid var(--border);font-size:12px;flex-shrink:0}
+.plan-banner.hidden{display:none}
+.plan-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.plan-dot.review{background:var(--green)}
+.plan-dot.planning_with_review{background:var(--accent)}
+.plan-dot.planning{background:var(--muted)}
+.plan-banner-text{color:var(--muted);flex:1}
+.plan-banner-text strong{color:var(--text)}
+
 /* ── Calendar ── */
 .cal-week{margin-bottom:28px}
 .cal-week-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;
@@ -158,12 +169,24 @@ input[type=number]{text-align:center}
   border:1px solid rgba(249,115,22,.3);border-radius:5px;padding:5px 7px;font-size:11px;
   cursor:pointer;margin-bottom:4px;color:var(--text);transition:all .15s;line-height:1.3}
 .session-chip:hover{background:var(--accent-mid);border-color:var(--accent)}
+.session-chip.done{background:rgba(63,185,80,.1);border-color:rgba(63,185,80,.4)}
+.session-chip.done:hover{background:rgba(63,185,80,.2);border-color:var(--green)}
+.session-chip.partial{background:rgba(210,153,34,.1);border-color:rgba(210,153,34,.4)}
+.session-chip.partial:hover{background:rgba(210,153,34,.2)}
+.session-chip.missed{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.35)}
+.session-chip.missed:hover{background:rgba(248,81,73,.15)}
 .chip-emoji{font-size:14px}
 .chip-title{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .chip-meta{color:var(--muted);font-size:10px}
+.chip-status{font-size:9px;font-weight:700;float:right;margin-top:1px;text-transform:uppercase;letter-spacing:.04em}
+.chip-status.done{color:var(--green)}.chip-status.partial{color:#d2991e}.chip-status.missed{color:var(--red)}
 .cal-rest-lbl{font-size:11px;color:var(--muted);margin-top:4px}
 .cal-empty{display:flex;align-items:center;justify-content:center;min-height:300px;color:var(--muted);
   flex-direction:column;gap:10px;font-size:13px}
+.cal-adherencia{display:flex;align-items:center;gap:12px;padding:10px 14px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:13px}
+.adherencia-score{font-size:26px;font-weight:700;color:var(--accent)}
+.adherencia-label{color:var(--muted);font-size:12px}
 
 /* ── Session modal ── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;
@@ -232,6 +255,11 @@ input[type=number]{text-align:center}
       <span class="modal-badge" id="modalDuration"></span>
       <span class="modal-badge" id="modalIntensity"></span>
       <span class="modal-badge rpe" id="modalRPE"></span>
+      <span class="modal-badge" id="modalScore" style="display:none"></span>
+    </div>
+    <div id="modalRealidad" style="display:none;margin-bottom:10px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border);font-size:12px">
+      <span style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Realidad</span>
+      <div id="modalRealidadText" style="margin-top:4px;color:var(--text)"></div>
     </div>
     <div class="modal-detail" id="modalDetail"></div>
   </div>
@@ -419,6 +447,10 @@ input[type=number]{text-align:center}
 
   <!-- OUTPUT PANEL -->
   <div class="output-panel">
+    <div class="plan-banner hidden" id="planBanner">
+      <div class="plan-dot" id="planDot"></div>
+      <span class="plan-banner-text" id="planBannerText"></span>
+    </div>
     <nav class="tabs">
       <button class="tab active" id="tabBtnAnalysis" onclick="showTab('analysis')">📋 Análisis</button>
       <button class="tab" id="tabBtnCalendar" onclick="showTab('calendar')">📅 Calendario</button>
@@ -449,6 +481,7 @@ let priority = 'A';
 const levels = { levelRunning:'intermedio', levelSwimming:'intermedio', levelCycling:'intermedio' };
 const availableDays = { running:[], swimming:[], cycling:[], gym:[] };
 const allSessions = [];
+let currentMode = 'planning'; // 'planning' | 'review' | 'planning_with_review'
 
 // ── Login ─────────────────────────────────────────────────────
 async function checkCredentials() {
@@ -459,7 +492,34 @@ async function checkCredentials() {
     document.getElementById('loginOverlay').classList.add('hidden');
     if (r.email) document.getElementById('btnAccount').textContent = `⚙ ${r.email}`;
     await checkHistory();
+    await refreshPlanStatus();
   }
+}
+
+async function refreshPlanStatus() {
+  try {
+    const s = await fetch('/api/plan-status').then(r => r.json());
+    currentMode = s.mode;
+    const banner = document.getElementById('planBanner');
+    const dot = document.getElementById('planDot');
+    const text = document.getElementById('planBannerText');
+    const btn = document.getElementById('btnAnalyze');
+
+    dot.className = `plan-dot ${s.mode}`;
+
+    if (s.mode === 'review') {
+      banner.classList.remove('hidden');
+      text.innerHTML = `<strong>Plan activo</strong> · ${s.daysRemaining} día${s.daysRemaining !== 1 ? 's' : ''} restantes (hasta ${s.planEndDate})`;
+      btn.textContent = 'Revisar progreso';
+    } else if (s.mode === 'planning_with_review') {
+      banner.classList.remove('hidden');
+      text.innerHTML = `<strong>Plan activo</strong> · ${s.daysRemaining} día${s.daysRemaining !== 1 ? 's' : ''} restantes — ¡Listo para generar el siguiente!`;
+      btn.textContent = 'Generar nuevo plan →';
+    } else {
+      banner.classList.add('hidden');
+      btn.textContent = 'Analizar →';
+    }
+  } catch {}
 }
 
 async function checkHistory() {
@@ -530,6 +590,7 @@ async function submitLogin() {
     document.getElementById('loginOverlay').classList.add('hidden');
     document.getElementById('btnAccount').textContent = `⚙ ${email}`;
     await checkHistory();
+    await refreshPlanStatus();
   } else {
     err.textContent = 'Error al guardar.';
   }
@@ -650,25 +711,47 @@ function md2html(raw) {
   return s;
 }
 
-// ── Plan JSON extraction ──────────────────────────────────────
-function extractPlanJson(text) {
-  const m = text.match(/\[PLAN_JSON\]([\s\S]*?)\[\/PLAN_JSON\]/);
+// ── JSON extraction helpers ────────────────────────────────────
+function parseJsonBlock(text, tag) {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`);
+  const m = text.match(re);
   if (!m) return null;
-  try { return JSON.parse(m[1].trim()); } catch { return null; }
+  let raw = m[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  const start = raw.indexOf('{');
+  if (start > 0) raw = raw.slice(start);
+  try { return JSON.parse(raw); } catch(e) {
+    console.error(`${tag} parse error:`, e.message, raw.slice(0, 200));
+    return null;
+  }
 }
-function stripPlanJson(text) {
-  return text.replace(/\[PLAN_JSON\][\s\S]*?\[\/PLAN_JSON\]/g, '').trim();
+function stripJsonBlocks(text) {
+  return text.replace(/\[PLAN_JSON\][\s\S]*?\[\/PLAN_JSON\]/g, '')
+             .replace(/\[REVIEW_JSON\][\s\S]*?\[\/REVIEW_JSON\]/g, '').trim();
 }
+function extractPlanJson(text) { return parseJsonBlock(text, 'PLAN_JSON'); }
+function extractReviewJson(text) { return parseJsonBlock(text, 'REVIEW_JSON'); }
 
 // ── Calendar renderer ─────────────────────────────────────────
 const todayStr = new Date().toISOString().split('T')[0];
+const STATUS_LABEL = { done: '✓ Realizado', partial: '~ Parcial', missed: '✗ Perdida' };
 
-function renderCalendar(plan) {
+function renderCalendar(plan, isReview = false) {
   const container = document.getElementById('calendarContent');
-  if (!plan) { container.innerHTML = '<div class="cal-empty"><span style="font-size:32px">📅</span><span>No se pudo generar el calendario. Revisá el análisis.</span></div>'; return; }
+  if (!plan) {
+    container.innerHTML = '<div class="cal-empty"><span style="font-size:32px">📅</span><span>No se pudo generar el calendario. Revisá el análisis.</span></div>';
+    return;
+  }
   allSessions.length = 0;
   let html = '';
+
+  if (isReview && typeof plan.adherencia === 'number') {
+    const pct = plan.adherencia;
+    const color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--accent)' : 'var(--red)';
+    html += `<div class="cal-adherencia"><span class="adherencia-score" style="color:${color}">${pct}%</span><div><div style="font-weight:600">Adherencia al plan</div><div class="adherencia-label">Cumplimiento de las últimas 2 semanas</div></div></div>`;
+  }
+
   for (const [key, week] of Object.entries(plan)) {
+    if (key === 'adherencia' || key === 'savedAt') continue;
     const wNum = key === 'semana1' ? 1 : 2;
     html += `<div class="cal-week"><div class="cal-week-title">Semana ${wNum} — desde ${week.inicio}</div><div class="cal-grid">`;
     for (const day of (week.dias || [])) {
@@ -683,10 +766,12 @@ function renderCalendar(plan) {
         for (const ses of day.sesiones) {
           const idx = allSessions.length;
           allSessions.push(ses);
-          html += `<button class="session-chip" onclick="openSession(${idx})">`;
+          const statusClass = ses.status ? ` ${ses.status}` : '';
+          html += `<button class="session-chip${statusClass}" onclick="openSession(${idx})">`;
+          if (ses.status) html += `<span class="chip-status ${ses.status}">${ses.status === 'done' ? '✓' : ses.status === 'partial' ? '~' : '✗'}</span>`;
           html += `<span class="chip-emoji">${ses.emoji||'🏃'}</span> `;
           html += `<span class="chip-title">${ses.titulo||''}</span>`;
-          html += `<span class="chip-meta">${ses.duracion||''} · RPE ${ses.rpe||'?'}</span>`;
+          html += `<span class="chip-meta">${ses.duracion||''} · RPE ${ses.rpe||'?'}${ses.score != null ? ` · ${ses.score}/10` : ''}</span>`;
           html += `</button>`;
         }
       }
@@ -704,7 +789,30 @@ function openSession(idx) {
   document.getElementById('modalTitle').textContent = s.titulo || '';
   document.getElementById('modalDuration').textContent = s.duracion || '';
   document.getElementById('modalIntensity').textContent = s.intensidad || '';
-  document.getElementById('modalRPE').textContent = `RPE ${s.rpe || '?'}/10`;
+  document.getElementById('modalRPE').textContent = `RPE objetivo ${s.rpe || '?'}/10`;
+
+  const scoreEl = document.getElementById('modalScore');
+  const realEl = document.getElementById('modalRealidad');
+  const realText = document.getElementById('modalRealidadText');
+
+  if (s.status && s.score != null) {
+    scoreEl.style.display = '';
+    const scoreColor = s.score >= 8 ? 'var(--green)' : s.score >= 5 ? 'var(--accent)' : 'var(--red)';
+    scoreEl.style.background = 'transparent';
+    scoreEl.style.color = scoreColor;
+    scoreEl.style.borderColor = scoreColor;
+    scoreEl.textContent = `${STATUS_LABEL[s.status] || s.status} · Score ${s.score}/10`;
+  } else {
+    scoreEl.style.display = 'none';
+  }
+
+  if (s.actividad_real) {
+    realEl.style.display = '';
+    realText.textContent = s.actividad_real;
+  } else {
+    realEl.style.display = 'none';
+  }
+
   document.getElementById('modalDetail').textContent = s.detalle || '';
   document.getElementById('sessionModal').classList.remove('hidden');
 }
@@ -733,6 +841,7 @@ async function analyze() {
 
   const { profile, checkin } = collectData();
   let fullText = '';
+  let sessionMode = currentMode;
 
   try {
     const res = await fetch('/api/analyze', {
@@ -755,22 +864,37 @@ async function analyze() {
         if (!line.startsWith('data: ')) continue;
         try {
           const d = JSON.parse(line.slice(6));
-          if (d.type === 'status') {
+          if (d.type === 'mode') {
+            sessionMode = d.value;
+          } else if (d.type === 'status') {
             statusMsg.textContent = d.message;
           } else if (d.type === 'text') {
             fullText += d.content;
             out.textContent = fullText;
             panel.scrollTop = panel.scrollHeight;
           } else if (d.type === 'done') {
-            const plan = extractPlanJson(fullText);
-            const cleanText = stripPlanJson(fullText);
+            const cleanText = stripJsonBlocks(fullText);
             out.className = 'output';
             out.innerHTML = md2html(cleanText);
             statusBar.classList.add('hidden');
             panel.scrollTop = 0;
-            if (plan) {
-              renderCalendar(plan);
-              document.getElementById('tabBtnCalendar').textContent = '📅 Calendario ✓';
+
+            if (sessionMode === 'review') {
+              const reviewJson = extractReviewJson(fullText);
+              renderCalendar(reviewJson, true);
+              document.getElementById('tabBtnCalendar').textContent = reviewJson ? '📅 Progreso ✓' : '📅 Progreso ⚠';
+              if (reviewJson) showTab('calendar');
+            } else {
+              const planJson = extractPlanJson(fullText);
+              renderCalendar(planJson, false);
+              document.getElementById('tabBtnCalendar').textContent = planJson ? '📅 Calendario ✓' : '📅 Calendario ⚠';
+              if (planJson) {
+                await fetch('/api/save-plan', {
+                  method: 'POST', headers: {'Content-Type':'application/json'},
+                  body: JSON.stringify(planJson),
+                }).catch(() => {});
+                await refreshPlanStatus();
+              }
             }
           } else if (d.type === 'error') {
             out.className = '';

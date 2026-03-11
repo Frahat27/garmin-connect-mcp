@@ -1,4 +1,6 @@
 import type { AthleteProfile, DailyCheckin, GarminSummary } from './types';
+import type { StoredPlan } from './plan-store';
+import { planToContext, addDays } from './plan-store';
 
 const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
@@ -34,7 +36,7 @@ FORMATO DE SALIDA (seguir exactamente este orden):
 6. **REGLAS DE AJUSTE** — qué cambiar si HRV bajo, soreness alto, calor, sesión perdida
 7. **3 FOCOS DE LAS DOS SEMANAS** — prioridades top
 
-Luego del punto 7, incluí OBLIGATORIAMENTE el siguiente bloque JSON (sin texto adicional entre las etiquetas):
+Luego del punto 7, incluí OBLIGATORIAMENTE el siguiente bloque JSON. IMPORTANTE: el JSON va DIRECTAMENTE entre las etiquetas, sin backticks, sin bloques de código, sin texto adicional:
 
 [PLAN_JSON]
 {"semana1":{"inicio":"YYYY-MM-DD","dias":[{"dia":"Lunes","fecha":"YYYY-MM-DD","descanso":false,"sesiones":[{"deporte":"running","emoji":"🏃","titulo":"Título breve","duracion":"45 min","intensidad":"Zona 2 (130-145 bpm)","rpe":3,"detalle":"Descripción completa de la sesión incluyendo calentamiento, set principal y vuelta a la calma."}]}]},"semana2":{"inicio":"YYYY-MM-DD","dias":[...]}}
@@ -43,15 +45,85 @@ Luego del punto 7, incluí OBLIGATORIAMENTE el siguiente bloque JSON (sin texto 
 Valores válidos para "deporte": running, cycling, swimming, strength, rest
 Emojis por deporte: running=🏃, cycling=🚴, swimming=🏊, strength=🏋️, rest=🛌
 Si el día es descanso, usá "descanso":true y "sesiones":[]
+El bloque [PLAN_JSON] debe tener los 14 días completos (7 por semana).
 Sé firme y práctico. Si los datos son insuficientes, indicá supuestos claramente y continuá.`;
+
+export const REVIEW_SYSTEM_PROMPT = `Eres un coach experto de resistencia y fuerza.
+
+MODO: REVISIÓN DE CUMPLIMIENTO DE PLAN
+Tu tarea es cruzar el plan de entrenamiento de las últimas 2 semanas con las actividades reales registradas en Garmin, y puntuar la ejecución.
+
+IDIOMA: Responde siempre en español.
+
+INSTRUCCIONES:
+- Cruzá cada sesión planificada con la actividad más cercana en fecha y tipo en Garmin
+- Evaluá calidad de ejecución: duración, intensidad (FC/zonas), distancia vs objetivo
+- Status: "done" = cumplido ≥80% de lo planificado | "partial" = 40-79% | "missed" = <40% o no registrado
+- Score 0-10: calidad de ejecución relativa al objetivo (10 = perfecto)
+
+FORMATO DE SALIDA:
+1. **ADHERENCIA GLOBAL** — porcentaje de cumplimiento total + desglose por disciplina
+2. **REVISIÓN SESIÓN POR SESIÓN** — tabla: Día | Sesión planificada | Realidad (Garmin) | Status | Score | Observación
+3. **DIAGNÓSTICO** — qué funcionó bien, qué no, causas probables
+4. **PUNTOS PARA EL PRÓXIMO BLOQUE** — ajustes concretos basados en la realidad
+
+Luego del punto 4, incluí OBLIGATORIAMENTE el bloque [REVIEW_JSON]. El JSON va DIRECTAMENTE entre las etiquetas, sin backticks, sin bloques de código:
+
+[REVIEW_JSON]
+{"adherencia":85,"semana1":{"inicio":"YYYY-MM-DD","dias":[{"dia":"Lunes","fecha":"YYYY-MM-DD","descanso":false,"sesiones":[{"deporte":"running","emoji":"🏃","titulo":"Título","duracion":"45 min","intensidad":"Zona 2","rpe":3,"detalle":"Plan original","status":"done","actividad_real":"Corrí 48 min avg 137bpm Z2","score":9}]}]},"semana2":{"inicio":"YYYY-MM-DD","dias":[...]}}
+[/REVIEW_JSON]
+
+El bloque [REVIEW_JSON] debe incluir los 14 días completos con todos los campos originales + status, actividad_real y score en cada sesión planificada.`;
+
+export const PLANNING_WITH_REVIEW_SYSTEM_PROMPT = `Eres un coach experto de resistencia (running y triatlón) y fuerza.
+
+MODO: REVISIÓN + NUEVO PLAN
+Estás a pocos días del fin del plan actual. Tu tarea es:
+1. Hacer una revisión de cumplimiento de las últimas 2 semanas
+2. Generar el nuevo plan para las siguientes 2 semanas basado en la realidad observada
+
+IDIOMA: Responde siempre en español.
+
+REGLAS DE PLANIFICACIÓN:
+- Plan para las PRÓXIMAS DOS SEMANAS, sesión por sesión
+- Ajustá la carga según lo que realmente ocurrió (no lo que estaba planificado)
+- Cada sesión incluye: deporte, duración, set principal detallado, guía de intensidad, propósito, RPE objetivo, entrada en calor y vuelta a la calma
+- Máximo 2–3 sesiones clave/semana; alternancia duro/fácil
+- Usá el historial de 4 años para orientar el plan hacia el pico máximo del atleta
+
+FORMATO DE SALIDA:
+1. **REVISIÓN DE LAS 2 SEMANAS ANTERIORES** — adherencia %, sesiones clave cumplidas/perdidas, tabla de sesiones con status y score
+2. **RESUMEN DE DATOS GARMIN** — métricas disponibles/faltantes
+3. **STATUS DEL ATLETA** — Fitness / Fatiga / Readiness / Riesgo lesión
+4. **DIAGNÓSTICO COACH** — ajustes para el nuevo bloque basados en la realidad
+5. **PLAN — SEMANA 1** — layout día a día
+6. **PLAN — SEMANA 2** — idem
+7. **REGLAS DE AJUSTE** — qué cambiar si HRV bajo, soreness alto, etc.
+8. **3 FOCOS DE LAS DOS SEMANAS** — prioridades top
+
+Luego del punto 8, incluí OBLIGATORIAMENTE el bloque [PLAN_JSON]. El JSON va DIRECTAMENTE entre las etiquetas, sin backticks, sin bloques de código:
+
+[PLAN_JSON]
+{"semana1":{"inicio":"YYYY-MM-DD","dias":[{"dia":"Lunes","fecha":"YYYY-MM-DD","descanso":false,"sesiones":[{"deporte":"running","emoji":"🏃","titulo":"Título breve","duracion":"45 min","intensidad":"Zona 2 (130-145 bpm)","rpe":3,"detalle":"Descripción completa de la sesión."}]}]},"semana2":{"inicio":"YYYY-MM-DD","dias":[...]}}
+[/PLAN_JSON]
+
+El bloque [PLAN_JSON] debe tener los 14 días completos (7 por semana).
+Sé firme y práctico.`;
 
 export function buildUserMessage(
   profile: AthleteProfile,
   checkin: DailyCheckin,
   garmin: GarminSummary,
   historyContext?: string,
+  previousPlan?: StoredPlan,
 ): string {
   const lines: string[] = [];
+
+  if (previousPlan) {
+    lines.push('# PLAN DE LAS ÚLTIMAS 2 SEMANAS (contexto para revisión)\n');
+    lines.push(planToContext(previousPlan));
+    lines.push('\n---\n');
+  }
 
   lines.push('# PERFIL DEL ATLETA\n');
   lines.push(`- **Evento:** ${profile.eventName} — ${profile.eventDistance}`);
@@ -151,7 +223,67 @@ export function buildUserMessage(
   }
 
   lines.push('\n---');
-  lines.push(`\nFecha actual: ${garmin.fetchDate}. Generá el análisis completo y el plan de DOS SEMANAS detallado, incluyendo el bloque [PLAN_JSON] al final.`);
+  if (previousPlan) {
+    lines.push(`\nFecha actual: ${garmin.fetchDate}. Revisá el cumplimiento del plan anterior y generá el nuevo plan de DOS SEMANAS con el bloque [PLAN_JSON] al final.`);
+  } else {
+    lines.push(`\nFecha actual: ${garmin.fetchDate}. Generá el análisis completo y el plan de DOS SEMANAS detallado, incluyendo el bloque [PLAN_JSON] al final.`);
+  }
+
+  return lines.join('\n');
+}
+
+export function buildReviewMessage(
+  profile: AthleteProfile,
+  checkin: DailyCheckin,
+  garmin: GarminSummary,
+  plan: StoredPlan,
+  historyContext?: string,
+): string {
+  const lines: string[] = [];
+
+  lines.push('# PLAN DE LAS ÚLTIMAS 2 SEMANAS\n');
+  lines.push(planToContext(plan));
+
+  lines.push('\n\n# PERFIL DEL ATLETA (resumen)\n');
+  lines.push(`- Evento: ${profile.eventName} — ${profile.eventDistance}`);
+  lines.push(`- Fecha evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+  if (profile.activeInjury) lines.push(`- ⚠ LESIÓN ACTIVA: ${profile.injuryDescription} — dolor ${profile.injuryPain}/10`);
+  if (profile.recentInjuries) lines.push(`- Lesiones recientes: ${profile.recentInjuries}`);
+
+  lines.push('\n# CHECK-IN DEL DÍA\n');
+  lines.push(`- Fecha: ${checkin.date}`);
+  if (checkin.muscleSoreness !== null) lines.push(`- Soreness: ${checkin.muscleSoreness}/10`);
+  if (checkin.motivation !== null) lines.push(`- Motivación: ${checkin.motivation}/10`);
+  if (checkin.sleepQuality !== null) lines.push(`- Sueño: ${checkin.sleepQuality}/10`);
+  if (checkin.newPainOrIssue) lines.push(`- Dolor nuevo: ${checkin.newPainOrIssue}`);
+
+  lines.push('\n# ACTIVIDADES REALES — GARMIN\n');
+  lines.push(`*Fetch date: ${garmin.fetchDate}*\n`);
+
+  if (garmin.vo2max !== null) lines.push(`- VO2Max: ${garmin.vo2max} ml/kg/min`);
+  if (garmin.avgRestingHR7d !== null) lines.push(`- FC reposo prom 7d: ${garmin.avgRestingHR7d} bpm`);
+  if (garmin.avgBodyBattery7d !== null) lines.push(`- Body Battery prom 7d: ${garmin.avgBodyBattery7d}`);
+
+  if (garmin.activities.length > 0) {
+    const planStart = plan.semana1.inicio;
+    const planEnd = addDays(plan.semana2.inicio, 6);
+    const inRange = garmin.activities.filter(a => a.date >= planStart && a.date <= planEnd);
+    const toShow = inRange.length > 0 ? inRange : garmin.activities.slice(-20);
+
+    lines.push('\n## Actividades en el período del plan');
+    lines.push('| Fecha | Tipo | Km | Min | FC prom | Z1 | Z2 | Z3 | Z4 | Z5 |');
+    lines.push('|-------|------|----|----|---------|----|----|----|----|-----|');
+    toShow.forEach(a => {
+      lines.push(`| ${a.date} | ${a.type} | ${a.distanceKm ?? '-'} | ${a.durationMin} | ${a.avgHR ?? '-'} | ${a.zone1Min} | ${a.zone2Min} | ${a.zone3Min} | ${a.zone4Min} | ${a.zone5Min} |`);
+    });
+  }
+
+  if (historyContext) {
+    lines.push('\n# HISTORIAL DE 4 AÑOS\n');
+    lines.push(historyContext);
+  }
+
+  lines.push(`\n\n---\nFecha actual: ${garmin.fetchDate}. Cruzá el plan con las actividades Garmin y generá la revisión completa con el bloque [REVIEW_JSON] al final.`);
 
   return lines.join('\n');
 }

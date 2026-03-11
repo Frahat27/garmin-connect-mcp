@@ -6,8 +6,10 @@ import { fileURLToPath } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { GarminClient } from './client';
 import {
-  fetchGarminData, buildUserMessage, COACH_SYSTEM_PROMPT,
+  fetchGarminData, buildUserMessage, buildReviewMessage,
+  COACH_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT, PLANNING_WITH_REVIEW_SYSTEM_PROMPT,
   generateHistoryContext, historyExists,
+  loadPlan, savePlan, getPlanStatus,
 } from './coach/index';
 import type { AthleteProfile, DailyCheckin } from './coach/index';
 
@@ -108,6 +110,27 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (method === 'GET' && url === '/api/plan-status') {
+    const creds = loadCredentials();
+    const plan = creds?.email ? loadPlan(PROFILE_DIR, creds.email) : null;
+    const today = new Date().toISOString().split('T')[0];
+    const status = getPlanStatus(plan, today);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(status));
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/save-plan') {
+    const creds = loadCredentials();
+    if (!creds?.email) { res.writeHead(401); res.end(); return; }
+    ensureDir();
+    const planData = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    savePlan(PROFILE_DIR, creds.email, planData);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
   if (method === 'POST' && url === '/api/map-history') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -161,9 +184,15 @@ const server = createServer(async (req, res) => {
       const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
       saveProfile({ ...profile, savedAt: new Date().toISOString() });
 
+      const today = new Date().toISOString().split('T')[0];
+      const currentPlan = loadPlan(PROFILE_DIR, creds.email);
+      const planStatus = getPlanStatus(currentPlan, today);
+
+      send('mode', { value: planStatus.mode, daysRemaining: planStatus.daysRemaining, planEndDate: planStatus.planEndDate });
+
       send('status', { message: 'Conectando a Garmin Connect...' });
       const garminData = await fetchGarminData(new GarminClient(creds.email, creds.password));
-      send('status', { message: `✅ ${garminData.activities.length} actividades. Cargando historial y analizando con IA...` });
+      send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Analizando con IA...` });
 
       let historyContext: string | undefined;
       try {
@@ -174,11 +203,27 @@ const server = createServer(async (req, res) => {
         }
       } catch {}
 
+      let systemPrompt: string;
+      let userMessage: string;
+
+      if (planStatus.mode === 'review' && currentPlan) {
+        systemPrompt = REVIEW_SYSTEM_PROMPT;
+        userMessage = buildReviewMessage(profile, checkin, garminData, currentPlan, historyContext);
+        send('status', { message: 'Cruzando actividades vs plan...' });
+      } else if (planStatus.mode === 'planning_with_review' && currentPlan) {
+        systemPrompt = PLANNING_WITH_REVIEW_SYSTEM_PROMPT;
+        userMessage = buildUserMessage(profile, checkin, garminData, historyContext, currentPlan);
+        send('status', { message: 'Revisando plan anterior y generando el siguiente...' });
+      } else {
+        systemPrompt = COACH_SYSTEM_PROMPT;
+        userMessage = buildUserMessage(profile, checkin, garminData, historyContext);
+      }
+
       const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 8192,
-        system: COACH_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData, historyContext) }],
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
       });
 
       stream.on('text', (text: string) => send('text', { content: text }));

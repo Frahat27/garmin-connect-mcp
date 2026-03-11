@@ -9,6 +9,8 @@ import { GarminClient } from './client';
 import {
   fetchGarminData, buildUserMessage, buildReviewMessage, buildChatSystemPrompt,
   COACH_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT,
+  HISTORY_ANALYSIS_SYSTEM_PROMPT, MACRO_PLAN_SYSTEM_PROMPT,
+  buildHistoryAnalysisMessage, buildMacroPlanMessage,
   generateHistoryContext, historyExists, historyFilePath,
   loadPlan, savePlan, deletePlan, getPlanStatus,
 } from './coach/index';
@@ -89,6 +91,18 @@ function loadChatHistory(uDir: string): Array<{ role: string; content: string }>
     if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8'));
   } catch {}
   return [];
+}
+
+function saveTextData(uDir: string, filename: string, text: string): void {
+  try { writeFileSync(join(uDir, filename), text, 'utf-8'); } catch {}
+}
+
+function loadTextData(uDir: string, filename: string): string | null {
+  try {
+    const path = join(uDir, filename);
+    if (existsSync(path)) return readFileSync(path, 'utf-8');
+  } catch {}
+  return null;
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -263,6 +277,33 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (method === 'GET' && url === '/api/historical-analysis') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const text = loadTextData(getUserDir(session.email), 'historical-analysis.txt');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ text }));
+    return;
+  }
+
+  if (method === 'GET' && url === '/api/macro-plan-text') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const text = loadTextData(getUserDir(session.email), 'macro-plan.txt');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ text }));
+    return;
+  }
+
+  if (method === 'GET' && url === '/api/plan-vs-real-text') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const text = loadTextData(getUserDir(session.email), 'plan-vs-real.txt');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ text }));
+    return;
+  }
+
   const makeSSE = (): (type: string, data?: Record<string, unknown>) => void => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -339,9 +380,72 @@ const server = createServer(async (req, res) => {
         try {
           const rj = JSON.parse(raw) as Record<string, unknown>;
           savePlan(uDir, session.email, rj);
+          saveTextData(uDir, 'plan-vs-real.txt', fullText);
           send('plan_update', { plan: rj });
         } catch {}
       }
+      send('done');
+    } catch (e) {
+      send('error', { message: e instanceof Error ? e.message : String(e) });
+    }
+    res.end();
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/analyze-history') {
+    const send = makeSSE();
+    try {
+      const session = getSession(req);
+      if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
+      const uDir = getUserDir(session.email);
+      const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
+
+      send('status', { message: 'Conectando a Garmin Connect...' });
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
+      send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Analizando historial...` });
+
+      const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
+        model: 'claude-opus-4-6',
+        max_tokens: 16000,
+        system: HISTORY_ANALYSIS_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: buildHistoryAnalysisMessage(profile, garminData, await getHistoryContext(uDir, session.email)) }],
+      });
+
+      let fullText = '';
+      stream.on('text', (text: string) => { fullText += text; send('text', { content: text }); });
+      await stream.finalMessage();
+      saveTextData(uDir, 'historical-analysis.txt', fullText);
+      send('done');
+    } catch (e) {
+      send('error', { message: e instanceof Error ? e.message : String(e) });
+    }
+    res.end();
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/generate-macro-plan') {
+    const send = makeSSE();
+    try {
+      const session = getSession(req);
+      if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
+      const uDir = getUserDir(session.email);
+      const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
+
+      send('status', { message: 'Conectando a Garmin Connect...' });
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
+      send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando Plan Macro...` });
+
+      const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
+        model: 'claude-opus-4-6',
+        max_tokens: 16000,
+        system: MACRO_PLAN_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: buildMacroPlanMessage(profile, garminData, await getHistoryContext(uDir, session.email)) }],
+      });
+
+      let fullText = '';
+      stream.on('text', (text: string) => { fullText += text; send('text', { content: text }); });
+      await stream.finalMessage();
+      saveTextData(uDir, 'macro-plan.txt', fullText);
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });

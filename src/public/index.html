@@ -246,6 +246,16 @@ input[type=number]{text-align:center}
 .modal-section.cooldown .modal-section-hdr{background:rgba(88,166,255,.08);color:#79c0ff}
 .modal-section.notes{border-color:var(--border)}
 .modal-section.notes .modal-section-hdr{background:var(--surface);color:var(--muted)}
+
+/* ── Action buttons card ── */
+.btn-action{width:100%;text-align:left;padding:10px 14px;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.btn-action:last-child{margin-bottom:0}
+
+/* ── Chart containers ── */
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.chart-row.single{grid-template-columns:1fr}
+.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;min-height:220px;display:flex;align-items:center;justify-content:center}
+.chart-wrap canvas{max-height:240px}
 </style>
 </head>
 <body>
@@ -315,9 +325,6 @@ input[type=number]{text-align:center}
     </div>
     <div class="hdr-right">
       <button class="btn btn-ghost" id="btnAccount" onclick="showLogin()" style="font-size:12px">⚙ Cuenta</button>
-      <button class="btn btn-ghost" onclick="resetOutput()">Limpiar</button>
-      <button class="btn btn-ghost" id="btnUpdate" onclick="update()" disabled>Actualizar Plan vs Real</button>
-      <button class="btn btn-primary" id="btnAnalyze" onclick="analyze()">Analizar →</button>
     </div>
   </header>
 
@@ -484,6 +491,22 @@ input[type=number]{text-align:center}
       </div>
     </div>
 
+    <div class="card" style="border-color:rgba(249,115,22,.25)">
+      <div class="card-title" style="color:var(--accent)">⚡ Acciones</div>
+      <button class="btn btn-ghost btn-action" id="btnHistory" onclick="analyzeHistory()">
+        <span>📊</span><span>Analizar historial Garmin</span>
+      </button>
+      <button class="btn btn-ghost btn-action" id="btnMacro" onclick="generateMacroPlan()">
+        <span>📋</span><span>Generar Plan Macro</span>
+      </button>
+      <button class="btn btn-primary btn-action" id="btnAnalyze" onclick="generatePlan2w()">
+        <span>🗓</span><span>Generar Plan 2 Semanas →</span>
+      </button>
+      <button class="btn btn-ghost btn-action" id="btnCargarReal" onclick="cargarReal()" disabled>
+        <span>🔄</span><span>Cargar Real</span>
+      </button>
+    </div>
+
   </aside>
 
   <!-- OUTPUT PANEL -->
@@ -493,27 +516,56 @@ input[type=number]{text-align:center}
       <span class="plan-banner-text" id="planBannerText"></span>
     </div>
     <nav class="tabs">
-      <button class="tab active" id="tabBtnAnalysis" onclick="showTab('analysis')">📋 Análisis</button>
+      <button class="tab active" id="tabBtnHistory" onclick="showTab('history')">📊 Historial</button>
+      <button class="tab" id="tabBtnMacro" onclick="showTab('macro')">📋 Plan Macro</button>
+      <button class="tab" id="tabBtnPlan2w" onclick="showTab('plan2w')">🗓 Plan 2 Sem</button>
       <button class="tab" id="tabBtnCalendar" onclick="showTab('calendar')">📅 Calendario</button>
+      <button class="tab" id="tabBtnPlanVsReal" onclick="showTab('planVsReal')">⚡ vs Real</button>
       <button class="tab" id="tabBtnChat" onclick="showTab('chat')">💬 Chat</button>
     </nav>
 
-    <div class="tab-content active" id="tabAnalysis">
-      <div class="status-bar hidden" id="statusBar">
-        <div class="spinner"></div>
-        <span id="statusMsg">Analizando...</span>
+    <!-- Historial -->
+    <div class="tab-content active" id="tabHistory">
+      <div class="status-bar hidden" id="statusHistory"><div class="spinner"></div><span id="statusHistoryMsg">Analizando...</span></div>
+      <div class="chart-row hidden" id="historyCharts">
+        <div class="chart-wrap"><canvas id="chartVolume"></canvas></div>
+        <div class="chart-wrap"><canvas id="chartDiscipline"></canvas></div>
       </div>
-      <div id="outputContent">
-        <div class="empty"><div class="ico">🏃</div><p>Completá el formulario y hacé clic en <strong>Analizar →</strong> para obtener tu diagnóstico y plan.</p></div>
-      </div>
+      <div id="historyContent"><div class="empty"><div class="ico">📊</div><p>Hacé clic en <strong>Analizar historial Garmin</strong> para obtener un diagnóstico profundo de tu entrenamiento.</p></div></div>
     </div>
 
+    <!-- Plan Macro -->
+    <div class="tab-content" id="tabMacro">
+      <div class="status-bar hidden" id="statusMacro"><div class="spinner"></div><span id="statusMacroMsg">Generando...</span></div>
+      <div class="chart-row single hidden" id="macroCharts">
+        <div class="chart-wrap"><canvas id="chartMacro"></canvas></div>
+      </div>
+      <div id="macroContent"><div class="empty"><div class="ico">📋</div><p>Hacé clic en <strong>Generar Plan Macro</strong> para obtener la periodización completa hasta tu evento.</p></div></div>
+    </div>
+
+    <!-- Plan 2 Semanas -->
+    <div class="tab-content" id="tabPlan2w">
+      <div class="status-bar hidden" id="statusPlan2w"><div class="spinner"></div><span id="statusPlan2wMsg">Generando...</span></div>
+      <div id="plan2wContent"><div class="empty"><div class="ico">🗓</div><p>Hacé clic en <strong>Generar Plan 2 Semanas →</strong> para obtener tu plan detallado.</p></div></div>
+    </div>
+
+    <!-- Calendario -->
     <div class="tab-content" id="tabCalendar">
       <div id="calendarContent">
-        <div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de analizar.</span></div>
+        <div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de generar el plan.</span></div>
       </div>
     </div>
 
+    <!-- Plan vs Real -->
+    <div class="tab-content" id="tabPlanVsReal">
+      <div class="status-bar hidden" id="statusPlanVsReal"><div class="spinner"></div><span id="statusPlanVsRealMsg">Cargando...</span></div>
+      <div class="chart-row single hidden" id="planVsRealCharts">
+        <div class="chart-wrap"><canvas id="chartCompliance"></canvas></div>
+      </div>
+      <div id="planVsRealContent"><div class="empty"><div class="ico">⚡</div><p>Hacé clic en <strong>Cargar Real</strong> para cruzar tus actividades Garmin con el plan.</p></div></div>
+    </div>
+
+    <!-- Chat -->
     <div class="tab-content" id="tabChat">
       <div class="chat-plan-banner hidden" id="chatPlanBanner" onclick="showTab('calendar')">
         <span>✅ Plan actualizado por el coach.</span>
@@ -529,11 +581,15 @@ input[type=number]{text-align:center}
         <textarea id="chatInput" rows="1" placeholder="Escribile al coach..." onkeydown="chatKeydown(event)" oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
         <button class="btn btn-primary" id="btnChatSend" onclick="sendChatMessage()" style="flex-shrink:0;padding:8px 14px">→</button>
       </div>
+      <div style="padding:6px 14px 8px;border-top:1px solid var(--border);background:var(--surface);text-align:right;flex-shrink:0">
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="clearChat()">🗑 Limpiar chat</button>
+      </div>
     </div>
   </div>
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 // ── State ─────────────────────────────────────────────────────
 let priority = 'A';
@@ -565,6 +621,9 @@ async function checkSession() {
   await refreshPlanStatus();
   await restoreSavedPlan();
   await restoreChatHistory();
+  await restoreHistoricalAnalysis();
+  await restoreMacroPlan();
+  await restorePlanVsReal();
 }
 
 async function logout() {
@@ -573,7 +632,6 @@ async function logout() {
   sessionToken = null;
   document.getElementById('btnAccount').textContent = '⚙ Cuenta';
   document.getElementById('loginOverlay').classList.remove('hidden');
-  resetOutput();
 }
 
 async function refreshPlanStatus() {
@@ -583,11 +641,11 @@ async function refreshPlanStatus() {
     const banner = document.getElementById('planBanner');
     const dot = document.getElementById('planDot');
     const text = document.getElementById('planBannerText');
-    document.getElementById('btnUpdate').disabled = !hasPlan;
+    document.getElementById('btnCargarReal').disabled = !hasPlan;
     if (hasPlan) {
       banner.classList.remove('hidden');
       dot.className = 'plan-dot review';
-      text.innerHTML = `<strong>Plan activo</strong> · desde ${s.plan.semana1.inicio} hasta ${s.planEndDate} · Usá <strong>Actualizar</strong> para cruzar con tus actividades`;
+      text.innerHTML = `<strong>Plan activo</strong> · desde ${s.plan.semana1.inicio} hasta ${s.planEndDate}`;
     } else {
       banner.classList.add('hidden');
     }
@@ -668,6 +726,9 @@ async function submitLogin() {
     await refreshPlanStatus();
     await restoreSavedPlan();
     await restoreChatHistory();
+    await restoreHistoricalAnalysis();
+    await restoreMacroPlan();
+    await restorePlanVsReal();
   } else {
     err.textContent = r.error || 'Error al iniciar sesión.';
   }
@@ -802,8 +863,12 @@ function parseJsonBlock(text, tag) {
   }
 }
 function stripJsonBlocks(text) {
-  return text.replace(/\[PLAN_JSON\][\s\S]*?\[\/PLAN_JSON\]/g, '')
-             .replace(/\[REVIEW_JSON\][\s\S]*?\[\/REVIEW_JSON\]/g, '').trim();
+  return text
+    .replace(/\[PLAN_JSON\][\s\S]*?\[\/PLAN_JSON\]/g, '')
+    .replace(/\[REVIEW_JSON\][\s\S]*?\[\/REVIEW_JSON\]/g, '')
+    .replace(/\[CHART_JSON\][\s\S]*?\[\/CHART_JSON\]/g, '')
+    .replace(/\[MACRO_JSON\][\s\S]*?\[\/MACRO_JSON\]/g, '')
+    .trim();
 }
 function extractPlanJson(text) { return parseJsonBlock(text, 'PLAN_JSON'); }
 function extractReviewJson(text) { return parseJsonBlock(text, 'REVIEW_JSON'); }
@@ -1113,166 +1178,347 @@ async function sendChatMessage() {
   input.focus();
 }
 
-// ── Analyze ───────────────────────────────────────────────────
-function resetOutput() {
-  document.getElementById('outputContent').innerHTML = '<div class="empty"><div class="ico">🏃</div><p>Completá el formulario y hacé clic en <strong>Analizar →</strong>.</p></div>';
-  document.getElementById('calendarContent').innerHTML = '<div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de analizar.</span></div>';
-  clearChat();
-  showTab('analysis');
+// ── Charts ────────────────────────────────────────────────
+function renderHistoryCharts(chartData) {
+  if (!chartData) return;
+  document.getElementById('historyCharts').classList.remove('hidden');
+  if (window._chartVolume) { window._chartVolume.destroy(); window._chartVolume = null; }
+  if (window._chartDiscipline) { window._chartDiscipline.destroy(); window._chartDiscipline = null; }
+
+  const weeks = chartData.weeklyVolumes || [];
+  const labels = weeks.map(w => String(w.week).replace(/^\d{4}-?/, ''));
+  const ctxV = document.getElementById('chartVolume').getContext('2d');
+  window._chartVolume = new Chart(ctxV, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Running', data: weeks.map(w => w.running || 0), backgroundColor: '#f97316', stack: 'a' },
+        { label: 'Ciclismo', data: weeks.map(w => w.cycling || 0), backgroundColor: '#3fb950', stack: 'a' },
+        { label: 'Natación', data: weeks.map(w => w.swimming || 0), backgroundColor: '#79c0ff', stack: 'a' },
+        { label: 'Gym', data: weeks.map(w => w.gym || 0), backgroundColor: '#8b949e', stack: 'a' },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#e6edf3', font: { size: 10 } } },
+        title: { display: true, text: 'Volumen semanal (min)', color: '#e6edf3', font: { size: 12 } },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#8b949e', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#30363d' } },
+        y: { stacked: true, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d' } },
+      },
+    },
+  });
+
+  const disc = chartData.disciplineMinutes || {};
+  const ctxD = document.getElementById('chartDiscipline').getContext('2d');
+  window._chartDiscipline = new Chart(ctxD, {
+    type: 'doughnut',
+    data: {
+      labels: ['Running', 'Ciclismo', 'Natación', 'Gym'],
+      datasets: [{ data: [disc.running || 0, disc.cycling || 0, disc.swimming || 0, disc.gym || 0], backgroundColor: ['#f97316', '#3fb950', '#79c0ff', '#8b949e'], borderWidth: 1, borderColor: '#21262d' }],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#e6edf3', font: { size: 11 }, padding: 8 } },
+        title: { display: true, text: 'Distribución por disciplina', color: '#e6edf3', font: { size: 12 } },
+      },
+    },
+  });
 }
 
-async function analyze() {
-  const btn = document.getElementById('btnAnalyze');
-  const btnUpd = document.getElementById('btnUpdate');
-  const statusBar = document.getElementById('statusBar');
-  const statusMsg = document.getElementById('statusMsg');
-  const out = document.getElementById('outputContent');
-  const panel = document.getElementById('tabAnalysis');
+function renderMacroChart(macroData) {
+  if (!macroData?.phases?.length) return;
+  document.getElementById('macroCharts').classList.remove('hidden');
+  if (window._chartMacro) { window._chartMacro.destroy(); window._chartMacro = null; }
+  const phases = macroData.phases;
+  const ctx = document.getElementById('chartMacro').getContext('2d');
+  window._chartMacro = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: phases.map(p => p.name),
+      datasets: [{ label: 'Semanas', data: phases.map(p => p.weeks || 0), backgroundColor: phases.map(p => p.color || '#f97316') }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        title: { display: true, text: `Periodización → ${macroData.eventDate || '?'} (${macroData.totalWeeks || '?'} sem)`, color: '#e6edf3', font: { size: 12 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.raw} semanas — ${phases[ctx.dataIndex]?.focus || ''}` } },
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', callback: v => v + ' sem' }, grid: { color: '#30363d' } },
+        y: { ticks: { color: '#e6edf3', font: { size: 12 } }, grid: { color: '#30363d' } },
+      },
+    },
+  });
+}
 
+function renderComplianceChart(reviewPlan) {
+  if (!reviewPlan) return;
+  const sessions = [];
+  for (const key of ['semana1', 'semana2']) {
+    const week = reviewPlan[key];
+    if (!week?.dias) continue;
+    for (const day of week.dias) {
+      for (const ses of (day.sesiones || [])) {
+        if (ses.score != null) {
+          sessions.push({ label: `${(day.dia || '').slice(0, 3)} ${(day.fecha || '').slice(5)}: ${ses.titulo || ses.deporte || ''}`, score: ses.score, status: ses.status });
+        }
+      }
+    }
+  }
+  if (!sessions.length) return;
+  document.getElementById('planVsRealCharts').classList.remove('hidden');
+  if (window._chartCompliance) { window._chartCompliance.destroy(); window._chartCompliance = null; }
+  const colors = sessions.map(s => s.status === 'done' ? '#3fb950' : s.status === 'partial' ? '#f97316' : '#f85149');
+  const ctx = document.getElementById('chartCompliance').getContext('2d');
+  window._chartCompliance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: sessions.map(s => s.label),
+      datasets: [{ label: 'Score', data: sessions.map(s => s.score), backgroundColor: colors }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        title: { display: true, text: 'Score por sesión (0–10)', color: '#e6edf3', font: { size: 12 } },
+      },
+      scales: {
+        x: { min: 0, max: 10, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+        y: { ticks: { color: '#e6edf3', font: { size: 10 } }, grid: { color: '#30363d' } },
+      },
+    },
+  });
+}
+
+// ── Restore tabs on login ─────────────────────────────────────
+async function restoreHistoricalAnalysis() {
+  try {
+    const { text } = await apiFetch('/api/historical-analysis').then(r => r.json());
+    if (!text) return;
+    const chartData = parseJsonBlock(text, 'CHART_JSON');
+    const el = document.getElementById('historyContent');
+    el.className = 'output';
+    el.innerHTML = md2html(stripJsonBlocks(text));
+    if (chartData) renderHistoryCharts(chartData);
+    document.getElementById('tabBtnHistory').textContent = '📊 Historial ✓';
+  } catch {}
+}
+
+async function restoreMacroPlan() {
+  try {
+    const { text } = await apiFetch('/api/macro-plan-text').then(r => r.json());
+    if (!text) return;
+    const macroData = parseJsonBlock(text, 'MACRO_JSON');
+    const el = document.getElementById('macroContent');
+    el.className = 'output';
+    el.innerHTML = md2html(stripJsonBlocks(text));
+    if (macroData) renderMacroChart(macroData);
+    document.getElementById('tabBtnMacro').textContent = '📋 Plan Macro ✓';
+  } catch {}
+}
+
+async function restorePlanVsReal() {
+  try {
+    const { text } = await apiFetch('/api/plan-vs-real-text').then(r => r.json());
+    if (!text) return;
+    const el = document.getElementById('planVsRealContent');
+    el.className = 'output';
+    el.innerHTML = md2html(stripJsonBlocks(text));
+    const plan = await apiFetch('/api/saved-plan').then(r => r.json());
+    if (plan?.semana1) renderComplianceChart(plan);
+    document.getElementById('tabBtnPlanVsReal').textContent = '⚡ vs Real ✓';
+  } catch {}
+}
+
+// ── SSE stream helper ──────────────────────────────────────────
+async function streamSSE(url, body, { onStatus, onText, onDone, onError, onPlanUpdate } = {}) {
+  const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const d = JSON.parse(line.slice(6));
+        if (d.type === 'status' && onStatus) onStatus(d.message);
+        else if (d.type === 'text' && onText) onText(d.content);
+        else if (d.type === 'done' && onDone) onDone();
+        else if (d.type === 'error' && onError) onError(d.message);
+        else if (d.type === 'plan_update' && onPlanUpdate) onPlanUpdate(d.plan);
+      } catch {}
+    }
+  }
+}
+
+// ── analyzeHistory ────────────────────────────────────────────
+async function analyzeHistory() {
+  const btn = document.getElementById('btnHistory');
+  const statusBar = document.getElementById('statusHistory');
+  const statusMsg = document.getElementById('statusHistoryMsg');
+  const out = document.getElementById('historyContent');
   btn.disabled = true;
-  btnUpd.disabled = true;
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Iniciando...';
   out.className = 'streaming';
   out.textContent = '';
-  clearChat();
-  showTab('analysis');
+  document.getElementById('historyCharts').classList.add('hidden');
+  showTab('history');
+
+  const { profile } = collectData();
+  let fullText = '';
+  try {
+    await streamSSE('/api/analyze-history', { profile }, {
+      onStatus: m => { statusMsg.textContent = m; },
+      onText: t => { fullText += t; out.textContent = fullText; },
+      onDone: () => {
+        const chartData = parseJsonBlock(fullText, 'CHART_JSON');
+        out.className = 'output';
+        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        statusBar.classList.add('hidden');
+        if (chartData) renderHistoryCharts(chartData);
+        document.getElementById('tabBtnHistory').textContent = '📊 Historial ✓';
+      },
+      onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
+    });
+  } catch (e) {
+    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
+  }
+  btn.disabled = false;
+}
+
+// ── generateMacroPlan ─────────────────────────────────────────
+async function generateMacroPlan() {
+  const btn = document.getElementById('btnMacro');
+  const statusBar = document.getElementById('statusMacro');
+  const statusMsg = document.getElementById('statusMacroMsg');
+  const out = document.getElementById('macroContent');
+  btn.disabled = true;
+  statusBar.classList.remove('hidden');
+  statusMsg.textContent = 'Iniciando...';
+  out.className = 'streaming';
+  out.textContent = '';
+  document.getElementById('macroCharts').classList.add('hidden');
+  showTab('macro');
+
+  const { profile } = collectData();
+  let fullText = '';
+  try {
+    await streamSSE('/api/generate-macro-plan', { profile }, {
+      onStatus: m => { statusMsg.textContent = m; },
+      onText: t => { fullText += t; out.textContent = fullText; },
+      onDone: () => {
+        const macroData = parseJsonBlock(fullText, 'MACRO_JSON');
+        out.className = 'output';
+        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        statusBar.classList.add('hidden');
+        if (macroData) renderMacroChart(macroData);
+        document.getElementById('tabBtnMacro').textContent = '📋 Plan Macro ✓';
+      },
+      onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
+    });
+  } catch (e) {
+    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
+  }
+  btn.disabled = false;
+}
+
+// ── generatePlan2w (was analyze) ─────────────────────────────
+async function generatePlan2w() {
+  const btn = document.getElementById('btnAnalyze');
+  const statusBar = document.getElementById('statusPlan2w');
+  const statusMsg = document.getElementById('statusPlan2wMsg');
+  const out = document.getElementById('plan2wContent');
+  btn.disabled = true;
+  statusBar.classList.remove('hidden');
+  statusMsg.textContent = 'Iniciando...';
+  out.className = 'streaming';
+  out.textContent = '';
+  showTab('plan2w');
 
   await apiFetch('/api/plan', { method: 'DELETE' }).catch(() => {});
   await refreshPlanStatus();
 
   const { profile, checkin } = collectData();
   let fullText = '';
-
   try {
-    const res = await apiFetch('/api/analyze', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ profile, checkin }),
+    await streamSSE('/api/analyze', { profile, checkin }, {
+      onStatus: m => { statusMsg.textContent = m; },
+      onText: t => { fullText += t; out.textContent = fullText; },
+      onDone: async () => {
+        const planJson = extractPlanJson(fullText);
+        out.className = 'output';
+        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        statusBar.classList.add('hidden');
+        renderCalendar(planJson, false);
+        document.getElementById('tabBtnCalendar').textContent = planJson ? '📅 Calendario ✓' : '📅 Calendario ⚠';
+        document.getElementById('tabBtnPlan2w').textContent = '🗓 Plan 2 Sem ✓';
+        if (planJson) {
+          await apiFetch('/api/save-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(planJson) }).catch(() => {});
+          await refreshPlanStatus();
+          showTab('calendar');
+        }
+      },
+      onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream:true });
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const d = JSON.parse(line.slice(6));
-          if (d.type === 'status') {
-            statusMsg.textContent = d.message;
-          } else if (d.type === 'text') {
-            fullText += d.content;
-            out.textContent = fullText;
-            panel.scrollTop = panel.scrollHeight;
-          } else if (d.type === 'done') {
-            const planJson = extractPlanJson(fullText);
-            out.className = 'output';
-            out.innerHTML = md2html(stripJsonBlocks(fullText));
-            statusBar.classList.add('hidden');
-            panel.scrollTop = 0;
-            renderCalendar(planJson, false);
-            document.getElementById('tabBtnCalendar').textContent = planJson ? '📅 Calendario ✓' : '📅 Calendario ⚠';
-            if (planJson) {
-              await apiFetch('/api/save-plan', {
-                method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify(planJson),
-              }).catch(() => {});
-              await refreshPlanStatus();
-              showTab('calendar');
-            }
-          } else if (d.type === 'error') {
-            out.className = '';
-            out.innerHTML = `<div class="error-box">❌ ${d.message}</div>`;
-            statusBar.classList.add('hidden');
-          }
-        } catch {}
-      }
-    }
   } catch (e) {
-    out.className = '';
-    out.innerHTML = `<div class="error-box">❌ Error de conexión: ${e.message}</div>`;
-    statusBar.classList.add('hidden');
+    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
   }
   btn.disabled = false;
 }
 
-async function update() {
-  const btn = document.getElementById('btnAnalyze');
-  const btnUpd = document.getElementById('btnUpdate');
-  const statusBar = document.getElementById('statusBar');
-  const statusMsg = document.getElementById('statusMsg');
-  const out = document.getElementById('outputContent');
-  const panel = document.getElementById('tabAnalysis');
-
+// ── cargarReal (was update) ───────────────────────────────────
+async function cargarReal() {
+  const btn = document.getElementById('btnCargarReal');
+  const statusBar = document.getElementById('statusPlanVsReal');
+  const statusMsg = document.getElementById('statusPlanVsRealMsg');
+  const out = document.getElementById('planVsRealContent');
   btn.disabled = true;
-  btnUpd.disabled = true;
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Cargando actividades...';
   out.className = 'streaming';
   out.textContent = '';
-  showTab('analysis');
+  document.getElementById('planVsRealCharts').classList.add('hidden');
+  showTab('planVsReal');
 
   const { profile, checkin } = collectData();
   let fullText = '';
-  let gotPlanUpdate = false;
-
+  let reviewPlan = null;
   try {
-    const res = await apiFetch('/api/review', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile, checkin }),
+    await streamSSE('/api/review', { profile, checkin }, {
+      onStatus: m => { statusMsg.textContent = m; },
+      onText: t => { fullText += t; out.textContent = fullText; },
+      onPlanUpdate: plan => {
+        reviewPlan = plan;
+        renderCalendar(plan, true);
+        document.getElementById('tabBtnCalendar').textContent = '📅 Calendario ✓';
+      },
+      onDone: async () => {
+        out.className = 'output';
+        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        statusBar.classList.add('hidden');
+        if (reviewPlan) renderComplianceChart(reviewPlan);
+        document.getElementById('tabBtnPlanVsReal').textContent = '⚡ vs Real ✓';
+        await refreshPlanStatus();
+      },
+      onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const d = JSON.parse(line.slice(6));
-          if (d.type === 'status') {
-            statusMsg.textContent = d.message;
-          } else if (d.type === 'text') {
-            fullText += d.content;
-            out.textContent = fullText;
-            panel.scrollTop = panel.scrollHeight;
-          } else if (d.type === 'plan_update') {
-            gotPlanUpdate = true;
-            renderCalendar(d.plan, true);
-            document.getElementById('tabBtnCalendar').textContent = '📅 Plan vs Real ✓';
-          } else if (d.type === 'done') {
-            out.className = 'output';
-            out.innerHTML = md2html(stripJsonBlocks(fullText));
-            statusBar.classList.add('hidden');
-            panel.scrollTop = 0;
-            await refreshPlanStatus();
-            if (gotPlanUpdate) showTab('calendar');
-          } else if (d.type === 'error') {
-            out.className = '';
-            out.innerHTML = `<div class="error-box">❌ ${d.message}</div>`;
-            statusBar.classList.add('hidden');
-          }
-        } catch {}
-      }
-    }
   } catch (e) {
-    out.className = '';
-    out.innerHTML = `<div class="error-box">❌ Error de conexión: ${e.message}</div>`;
-    statusBar.classList.add('hidden');
+    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
   }
   btn.disabled = false;
   await refreshPlanStatus();

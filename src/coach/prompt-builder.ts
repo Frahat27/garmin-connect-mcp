@@ -364,3 +364,107 @@ export function buildReviewMessage(
 
   return lines.join('\n');
 }
+
+export const HISTORY_ANALYSIS_SYSTEM_PROMPT = `Sos Coach Shalo Gazna, triatleta experimentado. Analizás en profundidad el historial de entrenamiento de un atleta para darle un diagnóstico completo y accionable.
+
+IDIOMA: Respondé siempre en español.
+
+ANÁLISIS REQUERIDO (en este orden):
+1. **RESUMEN EJECUTIVO** — estado general del atleta en 3-5 oraciones clave
+2. **TENDENCIAS DE VOLUMEN** — evolución semana a semana: progresión, bajones, recuperación
+3. **DISTRIBUCIÓN POR DISCIPLINA** — tiempo por deporte, equilibrio entre disciplinas
+4. **PICO HISTÓRICO Y DISTANCIA ACTUAL** — mejores performances registradas y cuánto falta para volver/superarlas
+5. **PUNTOS FUERTES** — qué hace bien el atleta de forma consistente
+6. **ÁREAS DE MEJORA** — gaps técnicos, disciplinas subentrenadas, patrones negativos
+7. **PATRONES DE CARGA** — semanas duras/suaves, recuperación, señales de sobreentrenamiento
+8. **RECOMENDACIONES CLAVE** — 3-5 acciones concretas y priorizadas
+
+Al final incluí OBLIGATORIAMENTE el bloque [CHART_JSON]. El JSON va DIRECTAMENTE entre las etiquetas, sin backticks:
+
+[CHART_JSON]
+{"weeklyVolumes":[{"week":"YYYY-Wnn","running":0,"cycling":0,"swimming":0,"gym":0}],"disciplineMinutes":{"running":0,"cycling":0,"swimming":0,"gym":0},"monthlyLoad":[{"month":"YYYY-MM","minutes":0}]}
+[/CHART_JSON]
+
+Incluí las últimas 12 semanas en weeklyVolumes y los últimos 6 meses en monthlyLoad. Valores en minutos.`;
+
+export const MACRO_PLAN_SYSTEM_PROMPT = `Sos Coach Shalo Gazna, triatleta experimentado. Generás un Plan Macro de periodización desde hoy hasta el evento objetivo del atleta.
+
+IDIOMA: Respondé siempre en español.
+
+PLAN MACRO REQUERIDO (en este orden):
+1. **VISIÓN GENERAL** — camino hacia el evento, enfoque central del macrociclo
+2. **FASES DE ENTRENAMIENTO** — dividí el tiempo en fases (Base, Construcción, Pico, Taper). Para cada fase:
+   - Nombre, fechas inicio → fin, duración en semanas
+   - Objetivo principal, volumen relativo (%), intensidad relativa (%)
+   - Foco por disciplina y tipos de sesiones clave
+3. **HITOS Y CARRERAS DE PREPARACIÓN** — fechas clave intermedias, tests
+4. **PROGRESIÓN DE VOLUMEN SEMANAL** — patrón de carga (ej: 3 semanas carga + 1 descarga)
+5. **ALERTAS Y FACTORES DE RIESGO** — según perfil del atleta
+
+Al final incluí OBLIGATORIAMENTE el bloque [MACRO_JSON]. El JSON va DIRECTAMENTE entre las etiquetas, sin backticks:
+
+[MACRO_JSON]
+{"eventDate":"YYYY-MM-DD","eventName":"nombre","totalWeeks":0,"phases":[{"name":"Base","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","weeks":4,"volumePct":70,"intensityPct":30,"color":"#3fb950","focus":"descripción breve","keyWorkouts":["workout1"]}],"milestones":[{"date":"YYYY-MM-DD","description":"descripción"}]}
+[/MACRO_JSON]
+
+Colores por fase: Base="#3fb950", Construcción="#f97316", Pico="#f85149", Taper="#79c0ff"`;
+
+export function buildHistoryAnalysisMessage(profile: AthleteProfile, garmin: GarminSummary, historyContext?: string): string {
+  const lines: string[] = [];
+  lines.push('# PERFIL DEL ATLETA\n');
+  lines.push(`- Evento: ${profile.eventName} — ${profile.eventDistance}`);
+  lines.push(`- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+  if (profile.activeInjury) lines.push(`- ⚠ LESIÓN ACTIVA: ${profile.injuryDescription} — dolor ${profile.injuryPain}/10`);
+  if (profile.recentInjuries) lines.push(`- Lesiones recientes: ${profile.recentInjuries}`);
+  lines.push(`- Niveles: Running ${profile.levelRunning} | Natación ${profile.levelSwimming} | Ciclismo ${profile.levelCycling}`);
+
+  lines.push('\n# VOLUMEN SEMANAL (últimas 16 semanas)\n');
+  lines.push('| Semana | Running km | Running min | Ciclismo km | Ciclismo min | Natación m | Natación min | Gym min | Total min |');
+  lines.push('|--------|-----------|------------|------------|-------------|-----------|-------------|--------|----------|');
+  garmin.weeklyVolumes.slice(-16).forEach(w => {
+    lines.push(`| ${w.weekStart} | ${w.runningKm} | ${w.runningMin} | ${w.cyclingKm} | ${w.cyclingMin} | ${w.swimmingM} | ${w.swimmingMin} | ${w.strengthMin} | ${w.totalMin} |`);
+  });
+
+  if (garmin.activities.length > 0) {
+    lines.push('\n# ÚLTIMAS 30 ACTIVIDADES\n');
+    lines.push('| Fecha | Tipo | Km | Min | FC prom | Z1 | Z2 | Z3 | Z4 | Z5 |');
+    lines.push('|-------|------|----|----|---------|----|----|----|----|-----|');
+    garmin.activities.slice(-30).forEach(a => {
+      lines.push(`| ${a.date} | ${a.type} | ${a.distanceKm ?? '-'} | ${a.durationMin} | ${a.avgHR ?? '-'} | ${a.zone1Min} | ${a.zone2Min} | ${a.zone3Min} | ${a.zone4Min} | ${a.zone5Min} |`);
+    });
+  }
+
+  if (garmin.vo2max) lines.push(`\nVO2max: ${garmin.vo2max}`);
+  if (garmin.trainingStatus) lines.push(`Training status: ${JSON.stringify(garmin.trainingStatus)}`);
+  if (garmin.personalRecords) lines.push(`\nRecords personales: ${JSON.stringify(garmin.personalRecords)}`);
+  if (historyContext) lines.push(`\n# HISTORIAL 4 AÑOS\n${historyContext}`);
+
+  lines.push(`\nFecha actual: ${garmin.fetchDate}. Realizá el análisis profundo del historial del atleta conforme al sistema prompt, incluyendo el bloque [CHART_JSON] al final.`);
+  return lines.join('\n');
+}
+
+export function buildMacroPlanMessage(profile: AthleteProfile, garmin: GarminSummary, historyContext?: string): string {
+  const lines: string[] = [];
+  lines.push('# PERFIL DEL ATLETA\n');
+  lines.push(`- Evento objetivo: ${profile.eventName} — ${profile.eventDistance}`);
+  lines.push(`- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+  if (profile.secondaryObjective) lines.push(`- Objetivo secundario: ${profile.secondaryObjective}`);
+  lines.push(`- Running: ${profile.runningDays}d/sem, máx ${profile.runningMaxMinutes}min`);
+  lines.push(`- Natación: ${profile.swimmingDays}d/sem, máx ${profile.swimmingMaxMinutes}min`);
+  lines.push(`- Ciclismo: ${profile.cyclingDays}d/sem, máx ${profile.cyclingMaxMinutes}min`);
+  lines.push(`- Gym: ${profile.gymDays}d/sem, máx ${profile.gymMaxMinutes}min`);
+  if (profile.activeInjury) lines.push(`- ⚠ LESIÓN ACTIVA: ${profile.injuryDescription} — dolor ${profile.injuryPain}/10`);
+  if (profile.recentInjuries) lines.push(`- Lesiones recientes: ${profile.recentInjuries}`);
+  lines.push(`- Niveles: Running ${profile.levelRunning} | Natación ${profile.levelSwimming} | Ciclismo ${profile.levelCycling}`);
+
+  lines.push('\n# ESTADO ACTUAL (últimas 4 semanas)\n');
+  garmin.weeklyVolumes.slice(-4).forEach(w => {
+    lines.push(`- Semana ${w.weekStart}: ${w.totalMin}min total (run:${w.runningMin}min, bike:${w.cyclingMin}min, swim:${w.swimmingMin}min, gym:${w.strengthMin}min)`);
+  });
+
+  if (garmin.vo2max) lines.push(`\nVO2max: ${garmin.vo2max}`);
+  if (historyContext) lines.push(`\n# HISTORIAL 4 AÑOS (resumen)\n${historyContext.slice(0, 2000)}`);
+
+  lines.push(`\nFecha actual: ${garmin.fetchDate}. Generá el Plan Macro de periodización completo desde hoy hasta el evento, incluyendo el bloque [MACRO_JSON] al final.`);
+  return lines.join('\n');
+}

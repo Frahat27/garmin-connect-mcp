@@ -197,6 +197,15 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (method === 'GET' && url === '/api/saved-plan') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const plan = loadPlan(getUserDir(session.email), session.email);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(plan));
+    return;
+  }
+
   if (method === 'GET' && url === '/api/profile') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }

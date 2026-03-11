@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garmin Coach</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
+  --accent:#f97316;--accent-dim:rgba(249,115,22,.12);
+  --text:#e6edf3;--muted:#8b949e;--green:#3fb950;--red:#f85149;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  --mono:'SF Mono','Fira Code',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5}
+.app{display:grid;grid-template-rows:52px 1fr;grid-template-columns:420px 1fr;height:100vh;overflow:hidden}
+
+/* Login overlay */
+.login-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;
+  justify-content:center;z-index:100;backdrop-filter:blur(4px)}
+.login-overlay.hidden{display:none}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:36px 32px;width:100%;max-width:400px;text-align:center}
+.login-logo{font-size:40px;margin-bottom:12px}
+.login-box h2{font-size:20px;font-weight:700;margin-bottom:6px}
+.login-box p{font-size:13px;color:var(--muted);margin-bottom:28px;line-height:1.6}
+.login-box .field{text-align:left;margin-bottom:14px}
+.login-box label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px}
+.login-box input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+  color:var(--text);padding:9px 12px;font-size:14px;outline:none;transition:border-color .15s}
+.login-box input:focus{border-color:var(--accent)}
+.login-box .btn-login{width:100%;margin-top:6px;padding:10px;font-size:14px}
+.login-error{color:var(--red);font-size:12px;margin-top:10px;min-height:18px}
+
+/* Header */
+.hdr{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border);gap:12px}
+.hdr-left{display:flex;align-items:center;gap:10px}
+.hdr h1{font-size:15px;font-weight:700;letter-spacing:-.02em}
+.hdr h1 em{color:var(--accent);font-style:normal}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.btn{border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;padding:7px 16px;transition:opacity .15s}
+.btn:hover{opacity:.85}.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.badge{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--accent-dim);color:var(--accent);font-weight:600}
+
+/* Form panel */
+.form-panel{overflow-y:auto;border-right:1px solid var(--border);padding:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px}
+.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:12px}
+.field{margin-bottom:10px}.field:last-child{margin-bottom:0}
+label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+input[type=text],input[type=number],input[type=date],select,textarea{
+  width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:5px;
+  color:var(--text);padding:6px 9px;font-size:13px;font-family:var(--font);outline:none;transition:border-color .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
+input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* Priority buttons */
+.prio-group{display:flex;gap:6px}
+.prio-btn{flex:1;padding:5px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;
+  color:var(--muted);cursor:pointer;text-align:center;font-size:12px;font-weight:700;transition:all .15s}
+.prio-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+
+/* Sport rows */
+.sport-row{display:grid;grid-template-columns:80px 1fr 72px;align-items:center;gap:8px;
+  padding:8px 0;border-bottom:1px solid var(--border)}
+.sport-row:last-child{border-bottom:none}
+.sport-lbl{font-size:12px;font-weight:600}
+.slider-wrap{display:flex;align-items:center;gap:6px}
+.slider-wrap input[type=range]{flex:1}
+.sval{font-size:13px;font-weight:700;color:var(--accent);min-width:16px;text-align:center}
+.sunit{font-size:10px;color:var(--muted)}
+input[type=number]{text-align:center}
+
+/* Level buttons */
+.level-group{display:flex;gap:5px}
+.level-btn{flex:1;padding:4px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;
+  color:var(--muted);cursor:pointer;text-align:center;font-size:11px;transition:all .15s}
+.level-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+
+/* Checkbox field */
+.check-field{display:flex;align-items:center;gap:8px;padding:4px 0}
+.check-field label{margin:0;color:var(--text);font-size:12px;cursor:pointer}
+
+/* Conditional */
+.cond{display:none}.cond.on{display:block}
+
+/* Slider with value */
+.range-row{display:flex;align-items:center;gap:8px}
+.range-row input[type=range]{flex:1}
+.rval{font-size:15px;font-weight:700;color:var(--accent);min-width:22px;text-align:center}
+.rsuffix{font-size:11px;color:var(--muted)}
+
+/* Output panel */
+.output-panel{overflow-y:auto;padding:24px}
+.status-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);
+  border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:13px}
+.status-bar.hidden{display:none}
+.spinner{width:15px;height:15px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .65s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Empty state */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:400px;color:var(--muted);text-align:center}
+.empty .ico{font-size:48px;margin-bottom:14px}
+.empty p{font-size:13px;max-width:260px;line-height:1.6}
+.empty strong{color:var(--text)}
+
+/* Rendered markdown */
+.output h1{font-size:18px;font-weight:700;margin:24px 0 10px;border-bottom:1px solid var(--border);padding-bottom:8px}
+.output h2{font-size:15px;font-weight:600;margin:20px 0 8px;color:var(--accent)}
+.output h3{font-size:13px;font-weight:600;margin:14px 0 6px}
+.output p{margin:0 0 8px;color:var(--text)}
+.output ul,.output ol{margin:0 0 8px 20px}
+.output li{margin-bottom:3px}
+.output strong{font-weight:600}
+.output hr{border:none;border-top:1px solid var(--border);margin:18px 0}
+.output table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}
+.output th,.output td{padding:6px 10px;border:1px solid var(--border);text-align:left}
+.output th{background:var(--surface);font-weight:600;color:var(--accent)}
+.output tr:nth-child(even) td{background:rgba(255,255,255,.02)}
+.output pre{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;
+  overflow-x:auto;font-family:var(--mono);font-size:12px;margin:8px 0}
+
+/* Streaming pre */
+.streaming{white-space:pre-wrap;font-family:var(--mono);font-size:12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;
+  line-height:1.6;color:var(--text)}
+.streaming::after{content:'▋';display:inline-block;animation:blink 1s step-end infinite;color:var(--accent)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* Error */
+.error-box{padding:12px 16px;background:rgba(248,81,73,.08);border:1px solid var(--red);
+  border-radius:8px;color:var(--red);font-size:13px}
+</style>
+</head>
+<body>
+<!-- LOGIN OVERLAY -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">🏃</div>
+    <h2>Garmin <span style="color:var(--accent)">Coach</span></h2>
+    <p>Ingresá tus credenciales de Garmin Connect<br>para comenzar.</p>
+    <div class="field">
+      <label>Email de Garmin</label>
+      <input type="email" id="loginEmail" placeholder="tu@email.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>Contraseña de Garmin</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <div class="field">
+      <label>Anthropic API Key</label>
+      <input type="password" id="loginAnthropicKey" placeholder="sk-ant-...">
+    </div>
+    <button class="btn btn-primary btn-login" onclick="submitLogin()">Ingresar →</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header class="hdr">
+    <div class="hdr-left">
+      <h1>🏃 Garmin <em>Coach</em></h1>
+      <span class="badge">IA Personal</span>
+    </div>
+    <div class="hdr-right">
+      <button class="btn btn-ghost" id="btnAccount" onclick="showLogin()" style="font-size:12px">⚙ Cuenta</button>
+      <button class="btn btn-ghost" onclick="resetOutput()">Limpiar</button>
+      <button class="btn btn-primary" id="btnAnalyze" onclick="analyze()">Analizar →</button>
+    </div>
+  </header>
+
+  <!-- FORM PANEL -->
+  <aside class="form-panel">
+
+    <!-- Objetivo -->
+    <div class="card">
+      <div class="card-title">🎯 Objetivo</div>
+      <div class="field">
+        <label>Nombre del evento</label>
+        <input type="text" id="eventName" placeholder="Ej: Maratón Buenos Aires 2026">
+      </div>
+      <div class="field">
+        <label>Disciplina y distancia</label>
+        <input type="text" id="eventDistance" placeholder="Ej: Maratón 42km, Ironman 70.3">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Fecha del evento</label>
+          <input type="date" id="eventDate">
+        </div>
+        <div class="field">
+          <label>Prioridad</label>
+          <div class="prio-group">
+            <button type="button" class="prio-btn active" data-p="A" onclick="setPrio('A')">A</button>
+            <button type="button" class="prio-btn" data-p="B" onclick="setPrio('B')">B</button>
+            <button type="button" class="prio-btn" data-p="C" onclick="setPrio('C')">C</button>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Objetivo secundario (opcional)</label>
+        <input type="text" id="secondaryObjective" placeholder="Ej: Bajar 5K a sub-20">
+      </div>
+    </div>
+
+    <!-- Disponibilidad -->
+    <div class="card">
+      <div class="card-title">📅 Disponibilidad semanal</div>
+      <div class="sport-row">
+        <span class="sport-lbl">🏃 Running</span>
+        <div class="slider-wrap">
+          <input type="range" min="0" max="7" value="3" id="runningDays" oninput="sv('runningDays','rvd')">
+          <span class="sval" id="rvd">3</span><span class="sunit">días</span>
+        </div>
+        <input type="number" id="runningMaxMinutes" value="60" min="15" max="300" placeholder="min">
+      </div>
+      <div class="sport-row">
+        <span class="sport-lbl">🏊 Natación</span>
+        <div class="slider-wrap">
+          <input type="range" min="0" max="7" value="2" id="swimmingDays" oninput="sv('swimmingDays','svd')">
+          <span class="sval" id="svd">2</span><span class="sunit">días</span>
+        </div>
+        <input type="number" id="swimmingMaxMinutes" value="60" min="15" max="180" placeholder="min">
+      </div>
+      <div class="sport-row">
+        <span class="sport-lbl">🚴 Ciclismo</span>
+        <div class="slider-wrap">
+          <input type="range" min="0" max="7" value="2" id="cyclingDays" oninput="sv('cyclingDays','cvd')">
+          <span class="sval" id="cvd">2</span><span class="sunit">días</span>
+        </div>
+        <input type="number" id="cyclingMaxMinutes" value="90" min="15" max="360" placeholder="min">
+      </div>
+      <div class="sport-row">
+        <span class="sport-lbl">🏋️ Gimnasio</span>
+        <div class="slider-wrap">
+          <input type="range" min="0" max="7" value="2" id="gymDays" oninput="sv('gymDays','gvd')">
+          <span class="sval" id="gvd">2</span><span class="sunit">días</span>
+        </div>
+        <input type="number" id="gymMaxMinutes" value="60" min="20" max="120" placeholder="min">
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label>Días inamovibles sin entrenamiento</label>
+        <input type="text" id="restDays" placeholder='Ej: "domingo" o "ninguno"'>
+      </div>
+    </div>
+
+    <!-- Estado físico -->
+    <div class="card">
+      <div class="card-title">🩺 Estado físico</div>
+      <div class="check-field">
+        <input type="checkbox" id="activeInjury" onchange="toggleInjury()">
+        <label for="activeInjury">Tengo una lesión o dolor activo</label>
+      </div>
+      <div class="cond" id="injuryFields">
+        <div class="field" style="margin-top:10px">
+          <label>¿Dónde y qué tipo de lesión?</label>
+          <input type="text" id="injuryDescription" placeholder="Ej: Rodilla derecha, tendinitis rotuliana">
+        </div>
+        <div class="field">
+          <label>Intensidad del dolor</label>
+          <div class="range-row">
+            <input type="range" min="0" max="10" value="3" id="injuryPain" oninput="document.getElementById('ipv').textContent=this.value">
+            <span class="rval" id="ipv">3</span><span class="rsuffix">/10</span>
+          </div>
+        </div>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label>Lesiones en los últimos 6 meses (opcional)</label>
+        <input type="text" id="recentInjuries" placeholder="Ej: Fractura por estrés en tibia (dic 2025)">
+      </div>
+      <div class="field" style="margin-top:12px">
+        <label>Nivel en running</label>
+        <div class="level-group" data-f="levelRunning">
+          <button type="button" class="level-btn" onclick="setLvl('levelRunning','principiante')">Principiante</button>
+          <button type="button" class="level-btn active" onclick="setLvl('levelRunning','intermedio')">Intermedio</button>
+          <button type="button" class="level-btn" onclick="setLvl('levelRunning','avanzado')">Avanzado</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Nivel en natación</label>
+        <div class="level-group" data-f="levelSwimming">
+          <button type="button" class="level-btn" onclick="setLvl('levelSwimming','principiante')">Principiante</button>
+          <button type="button" class="level-btn active" onclick="setLvl('levelSwimming','intermedio')">Intermedio</button>
+          <button type="button" class="level-btn" onclick="setLvl('levelSwimming','avanzado')">Avanzado</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Nivel en ciclismo</label>
+        <div class="level-group" data-f="levelCycling">
+          <button type="button" class="level-btn" onclick="setLvl('levelCycling','principiante')">Principiante</button>
+          <button type="button" class="level-btn active" onclick="setLvl('levelCycling','intermedio')">Intermedio</button>
+          <button type="button" class="level-btn" onclick="setLvl('levelCycling','avanzado')">Avanzado</button>
+        </div>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <div class="check-field">
+          <input type="checkbox" id="weightGoal">
+          <label for="weightGoal">Tengo objetivo de composición corporal</label>
+        </div>
+        <div class="check-field">
+          <input type="checkbox" id="logsAllActivities" checked>
+          <label for="logsAllActivities">Logeo todas mis actividades en Garmin</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Disciplinas sin loguear en Garmin (si aplica)</label>
+        <input type="text" id="missingDisciplines" placeholder="Ej: natación en pileta">
+      </div>
+    </div>
+
+    <!-- Check-in diario -->
+    <div class="card" style="border-color:rgba(249,115,22,.35)">
+      <div class="card-title" style="color:var(--accent)">📊 Check-in del día</div>
+      <div class="row2">
+        <div class="field">
+          <label>Peso hoy (kg)</label>
+          <input type="number" id="weight" step="0.1" placeholder="72.5">
+        </div>
+        <div class="field">
+          <label>RPE último entrenamiento</label>
+          <div class="range-row">
+            <input type="range" min="0" max="10" value="7" id="rpeLastSession" oninput="document.getElementById('rpev').textContent=this.value">
+            <span class="rval" id="rpev">7</span>
+          </div>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Soreness muscular</label>
+          <div class="range-row">
+            <input type="range" min="0" max="10" value="3" id="muscleSoreness" oninput="document.getElementById('sorv').textContent=this.value">
+            <span class="rval" id="sorv">3</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>Motivación hoy</label>
+          <div class="range-row">
+            <input type="range" min="0" max="10" value="7" id="motivation" oninput="document.getElementById('motv').textContent=this.value">
+            <span class="rval" id="motv">7</span>
+          </div>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Calidad de sueño (anoche)</label>
+          <div class="range-row">
+            <input type="range" min="0" max="10" value="7" id="sleepQuality" oninput="document.getElementById('slpv').textContent=this.value">
+            <span class="rval" id="slpv">7</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>Dolor nuevo / molestia</label>
+          <input type="text" id="newPainOrIssue" placeholder="Ej: tensión en pantorrilla">
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- OUTPUT PANEL -->
+  <main class="output-panel" id="outputPanel">
+    <div class="status-bar hidden" id="statusBar">
+      <div class="spinner"></div>
+      <span id="statusMsg">Analizando...</span>
+    </div>
+    <div id="outputContent">
+      <div class="empty">
+        <div class="ico">🏃</div>
+        <p>Completá el formulario y hacé clic en <strong>Analizar</strong> para obtener tu diagnóstico y plan semanal.</p>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+// ── Login ──────────────────────────────────────────────────────
+async function checkCredentials() {
+  const res = await fetch('/api/credentials').then(r => r.json());
+  if (!res.hasCredentials) {
+    document.getElementById('loginOverlay').classList.remove('hidden');
+  } else {
+    document.getElementById('loginOverlay').classList.add('hidden');
+    if (res.email) document.getElementById('btnAccount').textContent = `⚙ ${res.email}`;
+  }
+}
+
+function showLogin() {
+  document.getElementById('loginError').textContent = '';
+  document.getElementById('loginOverlay').classList.remove('hidden');
+}
+
+async function submitLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const anthropicKey = document.getElementById('loginAnthropicKey').value.trim();
+  const errEl = document.getElementById('loginError');
+  if (!email || !password || !anthropicKey) { errEl.textContent = 'Completá los tres campos.'; return; }
+  errEl.textContent = '';
+  const res = await fetch('/api/credentials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, anthropicKey }),
+  }).then(r => r.json());
+  if (res.ok) {
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('btnAccount').textContent = `⚙ ${email}`;
+  } else {
+    errEl.textContent = 'Error al guardar. Intentá de nuevo.';
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) submitLogin();
+});
+
+// ── State ──────────────────────────────────────────────────────
+let priority = 'A';
+const levels = { levelRunning: 'intermedio', levelSwimming: 'intermedio', levelCycling: 'intermedio' };
+
+// ── Helpers ────────────────────────────────────────────────────
+function sv(id, vid) {
+  document.getElementById(vid).textContent = document.getElementById(id).value;
+}
+function setPrio(v) {
+  priority = v;
+  document.querySelectorAll('.prio-btn').forEach(b => b.classList.toggle('active', b.dataset.p === v));
+}
+function setLvl(field, v) {
+  levels[field] = v;
+  document.querySelectorAll(`[data-f="${field}"] .level-btn`).forEach(b => {
+    b.classList.toggle('active', b.textContent.toLowerCase().trim().startsWith(v.slice(0,5)));
+  });
+}
+function toggleInjury() {
+  document.getElementById('injuryFields').classList.toggle('on', document.getElementById('activeInjury').checked);
+}
+function resetOutput() {
+  document.getElementById('outputContent').innerHTML =
+    '<div class="empty"><div class="ico">🏃</div><p>Completá el formulario y hacé clic en <strong>Analizar</strong>.</p></div>';
+}
+
+// ── Load profile on init ───────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  await checkCredentials();
+  try {
+    const p = await fetch('/api/profile').then(r => r.json());
+    if (p) fillForm(p);
+  } catch {}
+});
+
+function fillForm(p) {
+  const s = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+  s('eventName', p.eventName); s('eventDistance', p.eventDistance);
+  if (p.eventDate && p.eventDate !== 'sin fecha') s('eventDate', p.eventDate);
+  s('secondaryObjective', p.secondaryObjective);
+  if (p.eventPriority) setPrio(p.eventPriority);
+  const sl = (id, vid, v) => { if (v === undefined) return; const e = document.getElementById(id); const ve = document.getElementById(vid); if (e) { e.value = v; if (ve) ve.textContent = v; } };
+  sl('runningDays','rvd',p.runningDays); s('runningMaxMinutes', p.runningMaxMinutes);
+  sl('swimmingDays','svd',p.swimmingDays); s('swimmingMaxMinutes', p.swimmingMaxMinutes);
+  sl('cyclingDays','cvd',p.cyclingDays); s('cyclingMaxMinutes', p.cyclingMaxMinutes);
+  sl('gymDays','gvd',p.gymDays); s('gymMaxMinutes', p.gymMaxMinutes);
+  s('restDays', p.restDays);
+  if (p.activeInjury) { document.getElementById('activeInjury').checked = true; toggleInjury(); s('injuryDescription', p.injuryDescription); const ip = document.getElementById('injuryPain'); if (ip) { ip.value = p.injuryPain; document.getElementById('ipv').textContent = p.injuryPain; } }
+  s('recentInjuries', p.recentInjuries);
+  if (p.levelRunning) setLvl('levelRunning', p.levelRunning);
+  if (p.levelSwimming) setLvl('levelSwimming', p.levelSwimming);
+  if (p.levelCycling) setLvl('levelCycling', p.levelCycling);
+  if (p.weightGoal !== undefined) document.getElementById('weightGoal').checked = p.weightGoal;
+  if (p.logsAllActivities !== undefined) document.getElementById('logsAllActivities').checked = p.logsAllActivities;
+  s('missingDisciplines', p.missingDisciplines);
+}
+
+function collectData() {
+  const v = id => document.getElementById(id)?.value ?? '';
+  const n = id => parseFloat(v(id)) || 0;
+  const b = id => document.getElementById(id)?.checked ?? false;
+  const profile = {
+    savedAt: new Date().toISOString(),
+    eventName: v('eventName'), eventDistance: v('eventDistance'),
+    eventDate: v('eventDate') || 'sin fecha', eventPriority: priority,
+    secondaryObjective: v('secondaryObjective'),
+    runningDays: n('runningDays'), runningMaxMinutes: n('runningMaxMinutes'),
+    swimmingDays: n('swimmingDays'), swimmingMaxMinutes: n('swimmingMaxMinutes'),
+    cyclingDays: n('cyclingDays'), cyclingMaxMinutes: n('cyclingMaxMinutes'),
+    gymDays: n('gymDays'), gymMaxMinutes: n('gymMaxMinutes'),
+    restDays: v('restDays'), activeInjury: b('activeInjury'),
+    injuryDescription: v('injuryDescription'), injuryPain: n('injuryPain'),
+    recentInjuries: v('recentInjuries'),
+    levelRunning: levels.levelRunning, levelSwimming: levels.levelSwimming, levelCycling: levels.levelCycling,
+    weightGoal: b('weightGoal'), logsAllActivities: b('logsAllActivities'),
+    missingDisciplines: v('missingDisciplines'),
+  };
+  const wRaw = parseFloat(v('weight'));
+  const checkin = {
+    date: new Date().toISOString().split('T')[0],
+    weight: isNaN(wRaw) ? null : wRaw,
+    rpeLastSession: n('rpeLastSession'), muscleSoreness: n('muscleSoreness'),
+    motivation: n('motivation'), sleepQuality: n('sleepQuality'),
+    newPainOrIssue: v('newPainOrIssue'),
+  };
+  return { profile, checkin };
+}
+
+// ── Markdown renderer ──────────────────────────────────────────
+function md2html(raw) {
+  let s = raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Tables
+  s = s.replace(/^\|(.+)\|\r?\n\|[-| :]+\|\r?\n((?:\|.+\|\r?\n?)+)/gm, (_m, hdr, body) => {
+    const ths = hdr.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+    const rows = body.trim().split('\n').map(row => {
+      const tds = row.split('|').slice(1,-1).map(c => `<td>${c.trim()}</td>`).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    return `<table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>\n`;
+  });
+  // Headings
+  s = s.replace(/^### (.+)$/gm,'<h3>$1</h3>');
+  s = s.replace(/^## (.+)$/gm,'<h2>$1</h2>');
+  s = s.replace(/^# (.+)$/gm,'<h1>$1</h1>');
+  // Formatting
+  s = s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  s = s.replace(/\*(.+?)\*/g,'<em>$1</em>');
+  s = s.replace(/^---$/gm,'<hr>');
+  // Lists
+  s = s.replace(/^- (.+)$/gm,'<li>$1</li>');
+  s = s.replace(/(<li>[^\n]*<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
+  // Paragraphs
+  s = s.split('\n\n').map(p => {
+    const t = p.trim();
+    if (!t || /^<[hultHTr]/.test(t)) return t;
+    return `<p>${t.replace(/\n/g,' ')}</p>`;
+  }).join('\n');
+  return s;
+}
+
+// ── Main analyze function ──────────────────────────────────────
+async function analyze() {
+  const btn = document.getElementById('btnAnalyze');
+  const statusBar = document.getElementById('statusBar');
+  const statusMsg = document.getElementById('statusMsg');
+  const out = document.getElementById('outputContent');
+  const panel = document.getElementById('outputPanel');
+
+  btn.disabled = true;
+  statusBar.classList.remove('hidden');
+  statusMsg.textContent = 'Iniciando...';
+  out.className = 'streaming';
+  out.textContent = '';
+
+  const { profile, checkin } = collectData();
+  let fullText = '';
+
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile, checkin }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'status') {
+            statusMsg.textContent = data.message;
+          } else if (data.type === 'text') {
+            fullText += data.content;
+            out.textContent = fullText;
+            panel.scrollTop = panel.scrollHeight;
+          } else if (data.type === 'done') {
+            out.className = 'output';
+            out.innerHTML = md2html(fullText);
+            statusBar.classList.add('hidden');
+            panel.scrollTop = 0;
+          } else if (data.type === 'error') {
+            out.className = '';
+            out.innerHTML = `<div class="error-box">❌ ${data.message}</div>`;
+            statusBar.classList.add('hidden');
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    out.className = '';
+    out.innerHTML = `<div class="error-box">❌ Error de conexión: ${e.message}</div>`;
+    statusBar.classList.add('hidden');
+  }
+
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

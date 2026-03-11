@@ -5,7 +5,10 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
 import { GarminClient } from './client';
-import { fetchGarminData, buildUserMessage, COACH_SYSTEM_PROMPT } from './coach/index';
+import {
+  fetchGarminData, buildUserMessage, COACH_SYSTEM_PROMPT,
+  generateHistoryContext, historyExists,
+} from './coach/index';
 import type { AthleteProfile, DailyCheckin } from './coach/index';
 
 const PORT = parseInt(process.env.PORT ?? '3005');
@@ -24,10 +27,10 @@ function ensureDir(): void {
 
 function loadCredentials(): Credentials | null {
   try {
-    if (process.env.GARMIN_EMAIL && process.env.GARMIN_PASSWORD) {
-      return { email: process.env.GARMIN_EMAIL, password: process.env.GARMIN_PASSWORD };
+    if (process.env.GARMIN_EMAIL && process.env.GARMIN_PASSWORD && ANTHROPIC_API_KEY_ENV) {
+      return { email: process.env.GARMIN_EMAIL, password: process.env.GARMIN_PASSWORD, anthropicKey: ANTHROPIC_API_KEY_ENV };
     }
-      if (existsSync(CREDS_PATH)) {
+    if (existsSync(CREDS_PATH)) {
       const saved = JSON.parse(readFileSync(CREDS_PATH, 'utf-8')) as Credentials;
       if (ANTHROPIC_API_KEY_ENV) saved.anthropicKey = ANTHROPIC_API_KEY_ENV;
       return saved;
@@ -97,6 +100,42 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (method === 'GET' && url === '/api/history-status') {
+    const creds = loadCredentials();
+    const exists = creds?.email ? historyExists(PROFILE_DIR, creds.email) : false;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ exists }));
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/map-history') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    const send = (type: string, data: Record<string, unknown> = {}): void => {
+      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    };
+    try {
+      const creds = loadCredentials();
+      if (!creds?.email || !creds?.password) { send('error', { message: 'Sin credenciales.' }); res.end(); return; }
+      if (historyExists(PROFILE_DIR, creds.email)) { send('done', { existed: true }); res.end(); return; }
+
+      await generateHistoryContext(
+        new GarminClient(creds.email, creds.password),
+        PROFILE_DIR,
+        creds.email,
+        (msg) => send('status', { message: msg }),
+      );
+      send('done', { existed: false });
+    } catch (e) {
+      send('error', { message: e instanceof Error ? e.message : String(e) });
+    }
+    res.end();
+    return;
+  }
+
   if (method === 'GET' && url === '/api/profile') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(loadProfile()));
@@ -109,32 +148,37 @@ const server = createServer(async (req, res) => {
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     });
-
     const send = (type: string, data: Record<string, unknown> = {}): void => {
       res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
     };
-
     try {
       const creds = loadCredentials();
       if (!creds?.email || !creds?.password || !creds?.anthropicKey) {
         send('error', { message: 'Faltan credenciales. Ingresalas desde ⚙ Cuenta.' });
-        res.end();
-        return;
+        res.end(); return;
       }
 
-      const body = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
-      const { profile, checkin } = body;
+      const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
       saveProfile({ ...profile, savedAt: new Date().toISOString() });
 
       send('status', { message: 'Conectando a Garmin Connect...' });
       const garminData = await fetchGarminData(new GarminClient(creds.email, creds.password));
-      send('status', { message: `✅ ${garminData.activities.length} actividades descargadas. Analizando con IA...` });
+      send('status', { message: `✅ ${garminData.activities.length} actividades. Cargando historial y analizando con IA...` });
+
+      let historyContext: string | undefined;
+      try {
+        if (historyExists(PROFILE_DIR, creds.email)) {
+          const { readFileSync: rfs } = await import('fs');
+          const { historyFilePath } = await import('./coach/index');
+          historyContext = rfs(historyFilePath(PROFILE_DIR, creds.email), 'utf-8');
+        }
+      } catch {}
 
       const stream = new Anthropic({ apiKey: creds.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 8192,
         system: COACH_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData) }],
+        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData, historyContext) }],
       });
 
       stream.on('text', (text: string) => send('text', { content: text }));
@@ -143,7 +187,6 @@ const server = createServer(async (req, res) => {
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });
     }
-
     res.end();
     return;
   }

@@ -9,12 +9,16 @@ export type AthleteProfile = {
   secondaryObjective: string;
   runningDays: number;
   runningMaxMinutes: number;
+  runningAvailableDays: number[];
   swimmingDays: number;
   swimmingMaxMinutes: number;
+  swimmingAvailableDays: number[];
   cyclingDays: number;
   cyclingMaxMinutes: number;
+  cyclingAvailableDays: number[];
   gymDays: number;
   gymMaxMinutes: number;
+  gymAvailableDays: number[];
   restDays: string;
   activeInjury: boolean;
   injuryDescription: string;

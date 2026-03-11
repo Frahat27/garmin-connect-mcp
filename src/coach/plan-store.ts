@@ -56,6 +56,14 @@ export function savePlan(profileDir: string, email: string, plan: Record<string,
   writeFileSync(planFilePath(profileDir, email), JSON.stringify(data, null, 2), 'utf-8');
 }
 
+export function deletePlan(profileDir: string, email: string): void {
+  try {
+    const { unlinkSync } = require('fs') as typeof import('fs');
+    const path = planFilePath(profileDir, email);
+    if (existsSync(path)) unlinkSync(path);
+  } catch {}
+}
+
 export function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);

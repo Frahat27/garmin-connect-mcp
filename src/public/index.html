@@ -188,6 +188,28 @@ input[type=number]{text-align:center}
 .adherencia-score{font-size:26px;font-weight:700;color:var(--accent)}
 .adherencia-label{color:var(--muted);font-size:12px}
 
+/* ── Chat ── */
+.tab-content.active#tabChat{display:flex;flex-direction:column;padding:0;overflow:hidden}
+#chatMessages{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
+.chat-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--muted);text-align:center;gap:8px;font-size:13px}
+.chat-bubble{max-width:78%;border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;word-break:break-word}
+.chat-bubble.user{align-self:flex-end;background:var(--accent-dim);border:1px solid rgba(249,115,22,.3)}
+.chat-bubble.assistant{align-self:flex-start;background:var(--surface);border:1px solid var(--border);min-width:120px}
+.chat-bubble.assistant.is-streaming{white-space:pre-wrap;font-family:var(--mono);font-size:12px}
+.chat-bubble.assistant.is-streaming::after{content:'▋';display:inline-block;animation:blink 1s step-end infinite;color:var(--accent)}
+.chat-bubble.assistant h2{font-size:13px;font-weight:600;margin:8px 0 4px;color:var(--accent)}
+.chat-bubble.assistant h3{font-size:12px;font-weight:600;margin:6px 0 3px}
+.chat-bubble.assistant p{margin:0 0 6px}.chat-bubble.assistant ul{margin:0 0 6px 16px}
+.chat-bubble.assistant li{margin-bottom:2px}.chat-bubble.assistant strong{font-weight:600}
+.chat-bubble.assistant table{width:100%;border-collapse:collapse;margin:6px 0;font-size:11px}
+.chat-bubble.assistant th,.chat-bubble.assistant td{padding:4px 8px;border:1px solid var(--border);text-align:left}
+.chat-bubble.assistant th{background:var(--surface2);font-weight:600;color:var(--accent)}
+.chat-input-area{flex-shrink:0;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface);display:flex;gap:8px;align-items:flex-end}
+#chatInput{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px;font-family:var(--font);resize:none;outline:none;transition:border-color .15s;line-height:1.5;max-height:110px;overflow-y:auto}
+#chatInput:focus{border-color:var(--accent)}
+.chat-plan-banner{display:flex;align-items:center;gap:10px;padding:8px 16px;background:rgba(63,185,80,.1);border-bottom:1px solid rgba(63,185,80,.3);font-size:12px;color:var(--green);flex-shrink:0;cursor:pointer;transition:background .15s}
+.chat-plan-banner:hover{background:rgba(63,185,80,.18)}.chat-plan-banner.hidden{display:none}
+
 /* ── Session modal ── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;
   justify-content:center;z-index:200;backdrop-filter:blur(4px)}
@@ -276,6 +298,7 @@ input[type=number]{text-align:center}
     <div class="hdr-right">
       <button class="btn btn-ghost" id="btnAccount" onclick="showLogin()" style="font-size:12px">⚙ Cuenta</button>
       <button class="btn btn-ghost" onclick="resetOutput()">Limpiar</button>
+      <button class="btn btn-ghost" id="btnUpdate" onclick="update()" disabled>Actualizar Plan vs Real</button>
       <button class="btn btn-primary" id="btnAnalyze" onclick="analyze()">Analizar →</button>
     </div>
   </header>
@@ -454,6 +477,7 @@ input[type=number]{text-align:center}
     <nav class="tabs">
       <button class="tab active" id="tabBtnAnalysis" onclick="showTab('analysis')">📋 Análisis</button>
       <button class="tab" id="tabBtnCalendar" onclick="showTab('calendar')">📅 Calendario</button>
+      <button class="tab" id="tabBtnChat" onclick="showTab('chat')">💬 Chat</button>
     </nav>
 
     <div class="tab-content active" id="tabAnalysis">
@@ -471,6 +495,23 @@ input[type=number]{text-align:center}
         <div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de analizar.</span></div>
       </div>
     </div>
+
+    <div class="tab-content" id="tabChat">
+      <div class="chat-plan-banner hidden" id="chatPlanBanner" onclick="showTab('calendar')">
+        <span>✅ Plan actualizado por el coach.</span>
+        <span style="margin-left:auto;font-weight:600">Ver en Calendario →</span>
+      </div>
+      <div id="chatMessages">
+        <div class="chat-empty" id="chatEmpty">
+          <span style="font-size:36px">💬</span>
+          <span>Hablale directamente al coach.<br>Pedí ajustes al plan, preguntá sobre intensidades,<br>nutrición o recuperación.</span>
+        </div>
+      </div>
+      <div class="chat-input-area">
+        <textarea id="chatInput" rows="1" placeholder="Escribile al coach..." onkeydown="chatKeydown(event)" oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
+        <button class="btn btn-primary" id="btnChatSend" onclick="sendChatMessage()" style="flex-shrink:0;padding:8px 14px">→</button>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -481,7 +522,6 @@ let priority = 'A';
 const levels = { levelRunning:'intermedio', levelSwimming:'intermedio', levelCycling:'intermedio' };
 const availableDays = { running:[], swimming:[], cycling:[], gym:[] };
 const allSessions = [];
-let currentMode = 'planning'; // 'planning' | 'review' | 'planning_with_review'
 
 // ── Login ─────────────────────────────────────────────────────
 async function checkCredentials() {
@@ -499,25 +539,17 @@ async function checkCredentials() {
 async function refreshPlanStatus() {
   try {
     const s = await fetch('/api/plan-status').then(r => r.json());
-    currentMode = s.mode;
+    const hasPlan = s.plan !== null;
     const banner = document.getElementById('planBanner');
     const dot = document.getElementById('planDot');
     const text = document.getElementById('planBannerText');
-    const btn = document.getElementById('btnAnalyze');
-
-    dot.className = `plan-dot ${s.mode}`;
-
-    if (s.mode === 'review') {
+    document.getElementById('btnUpdate').disabled = !hasPlan;
+    if (hasPlan) {
       banner.classList.remove('hidden');
-      text.innerHTML = `<strong>Plan activo</strong> · ${s.daysRemaining} día${s.daysRemaining !== 1 ? 's' : ''} restantes (hasta ${s.planEndDate})`;
-      btn.textContent = 'Revisar progreso';
-    } else if (s.mode === 'planning_with_review') {
-      banner.classList.remove('hidden');
-      text.innerHTML = `<strong>Plan activo</strong> · ${s.daysRemaining} día${s.daysRemaining !== 1 ? 's' : ''} restantes — ¡Listo para generar el siguiente!`;
-      btn.textContent = 'Generar nuevo plan →';
+      dot.className = 'plan-dot review';
+      text.innerHTML = `<strong>Plan activo</strong> · desde ${s.plan.semana1.inicio} hasta ${s.planEndDate} · Usá <strong>Actualizar</strong> para cruzar con tus actividades`;
     } else {
       banner.classList.add('hidden');
-      btn.textContent = 'Analizar →';
     }
   } catch {}
 }
@@ -818,30 +850,145 @@ function openSession(idx) {
 }
 function closeModal() { document.getElementById('sessionModal').classList.add('hidden'); }
 
+// ── Chat ──────────────────────────────────────────────────────
+let chatHistory = [];
+let chatStreaming = false;
+
+function clearChat() {
+  chatHistory = [];
+  chatStreaming = false;
+  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:36px">💬</span><span>Hablale directamente al coach.<br>Pedí ajustes al plan, preguntá sobre intensidades,<br>nutrición o recuperación.</span></div>';
+  document.getElementById('chatPlanBanner').classList.add('hidden');
+  document.getElementById('tabBtnChat').textContent = '💬 Chat';
+  document.getElementById('btnChatSend').disabled = false;
+  document.getElementById('chatInput').disabled = false;
+}
+
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+}
+
+async function sendChatMessage() {
+  if (chatStreaming) return;
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const empty = document.getElementById('chatEmpty');
+  if (empty) empty.remove();
+
+  input.value = '';
+  input.style.height = '';
+
+  const msgs = document.getElementById('chatMessages');
+  const userBubble = document.createElement('div');
+  userBubble.className = 'chat-bubble user';
+  userBubble.textContent = text;
+  msgs.appendChild(userBubble);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  chatHistory.push({ role: 'user', content: text });
+
+  const asBubble = document.createElement('div');
+  asBubble.className = 'chat-bubble assistant is-streaming';
+  msgs.appendChild(asBubble);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  chatStreaming = true;
+  document.getElementById('btnChatSend').disabled = true;
+  input.disabled = true;
+
+  const { profile, checkin } = collectData();
+  let fullText = '';
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: chatHistory, profile, checkin }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const d = JSON.parse(line.slice(6));
+          if (d.type === 'text') {
+            fullText += d.content;
+            asBubble.textContent = fullText;
+            msgs.scrollTop = msgs.scrollHeight;
+          } else if (d.type === 'plan_update') {
+            renderCalendar(d.plan, false);
+            document.getElementById('tabBtnCalendar').textContent = '📅 Calendario ✓';
+            document.getElementById('tabBtnChat').textContent = '💬 Chat ✅';
+            const banner = document.getElementById('chatPlanBanner');
+            banner.classList.remove('hidden');
+            setTimeout(() => banner.classList.add('hidden'), 7000);
+          } else if (d.type === 'done') {
+            asBubble.className = 'chat-bubble assistant';
+            asBubble.innerHTML = md2html(stripJsonBlocks(fullText));
+            msgs.scrollTop = msgs.scrollHeight;
+            chatHistory.push({ role: 'assistant', content: fullText });
+          } else if (d.type === 'error') {
+            asBubble.className = 'chat-bubble assistant';
+            asBubble.innerHTML = `<span style="color:var(--red)">❌ ${d.message}</span>`;
+            chatHistory.pop();
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    asBubble.className = 'chat-bubble assistant';
+    asBubble.innerHTML = `<span style="color:var(--red)">❌ Error de conexión: ${e.message}</span>`;
+    chatHistory.pop();
+  }
+
+  chatStreaming = false;
+  document.getElementById('btnChatSend').disabled = false;
+  input.disabled = false;
+  input.focus();
+}
+
 // ── Analyze ───────────────────────────────────────────────────
 function resetOutput() {
   document.getElementById('outputContent').innerHTML = '<div class="empty"><div class="ico">🏃</div><p>Completá el formulario y hacé clic en <strong>Analizar →</strong>.</p></div>';
   document.getElementById('calendarContent').innerHTML = '<div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de analizar.</span></div>';
+  clearChat();
   showTab('analysis');
 }
 
 async function analyze() {
   const btn = document.getElementById('btnAnalyze');
+  const btnUpd = document.getElementById('btnUpdate');
   const statusBar = document.getElementById('statusBar');
   const statusMsg = document.getElementById('statusMsg');
   const out = document.getElementById('outputContent');
   const panel = document.getElementById('tabAnalysis');
 
   btn.disabled = true;
+  btnUpd.disabled = true;
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Iniciando...';
   out.className = 'streaming';
   out.textContent = '';
+  clearChat();
   showTab('analysis');
+
+  await fetch('/api/plan', { method: 'DELETE' }).catch(() => {});
+  await refreshPlanStatus();
 
   const { profile, checkin } = collectData();
   let fullText = '';
-  let sessionMode = currentMode;
 
   try {
     const res = await fetch('/api/analyze', {
@@ -864,37 +1011,27 @@ async function analyze() {
         if (!line.startsWith('data: ')) continue;
         try {
           const d = JSON.parse(line.slice(6));
-          if (d.type === 'mode') {
-            sessionMode = d.value;
-          } else if (d.type === 'status') {
+          if (d.type === 'status') {
             statusMsg.textContent = d.message;
           } else if (d.type === 'text') {
             fullText += d.content;
             out.textContent = fullText;
             panel.scrollTop = panel.scrollHeight;
           } else if (d.type === 'done') {
-            const cleanText = stripJsonBlocks(fullText);
+            const planJson = extractPlanJson(fullText);
             out.className = 'output';
-            out.innerHTML = md2html(cleanText);
+            out.innerHTML = md2html(stripJsonBlocks(fullText));
             statusBar.classList.add('hidden');
             panel.scrollTop = 0;
-
-            if (sessionMode === 'review') {
-              const reviewJson = extractReviewJson(fullText);
-              renderCalendar(reviewJson, true);
-              document.getElementById('tabBtnCalendar').textContent = reviewJson ? '📅 Progreso ✓' : '📅 Progreso ⚠';
-              if (reviewJson) showTab('calendar');
-            } else {
-              const planJson = extractPlanJson(fullText);
-              renderCalendar(planJson, false);
-              document.getElementById('tabBtnCalendar').textContent = planJson ? '📅 Calendario ✓' : '📅 Calendario ⚠';
-              if (planJson) {
-                await fetch('/api/save-plan', {
-                  method: 'POST', headers: {'Content-Type':'application/json'},
-                  body: JSON.stringify(planJson),
-                }).catch(() => {});
-                await refreshPlanStatus();
-              }
+            renderCalendar(planJson, false);
+            document.getElementById('tabBtnCalendar').textContent = planJson ? '📅 Calendario ✓' : '📅 Calendario ⚠';
+            if (planJson) {
+              await fetch('/api/save-plan', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(planJson),
+              }).catch(() => {});
+              await refreshPlanStatus();
+              showTab('calendar');
             }
           } else if (d.type === 'error') {
             out.className = '';
@@ -910,6 +1047,81 @@ async function analyze() {
     statusBar.classList.add('hidden');
   }
   btn.disabled = false;
+}
+
+async function update() {
+  const btn = document.getElementById('btnAnalyze');
+  const btnUpd = document.getElementById('btnUpdate');
+  const statusBar = document.getElementById('statusBar');
+  const statusMsg = document.getElementById('statusMsg');
+  const out = document.getElementById('outputContent');
+  const panel = document.getElementById('tabAnalysis');
+
+  btn.disabled = true;
+  btnUpd.disabled = true;
+  statusBar.classList.remove('hidden');
+  statusMsg.textContent = 'Cargando actividades...';
+  out.className = 'streaming';
+  out.textContent = '';
+  showTab('analysis');
+
+  const { profile, checkin } = collectData();
+  let fullText = '';
+  let gotPlanUpdate = false;
+
+  try {
+    const res = await fetch('/api/review', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile, checkin }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const d = JSON.parse(line.slice(6));
+          if (d.type === 'status') {
+            statusMsg.textContent = d.message;
+          } else if (d.type === 'text') {
+            fullText += d.content;
+            out.textContent = fullText;
+            panel.scrollTop = panel.scrollHeight;
+          } else if (d.type === 'plan_update') {
+            gotPlanUpdate = true;
+            renderCalendar(d.plan, true);
+            document.getElementById('tabBtnCalendar').textContent = '📅 Plan vs Real ✓';
+          } else if (d.type === 'done') {
+            out.className = 'output';
+            out.innerHTML = md2html(stripJsonBlocks(fullText));
+            statusBar.classList.add('hidden');
+            panel.scrollTop = 0;
+            await refreshPlanStatus();
+            if (gotPlanUpdate) showTab('calendar');
+          } else if (d.type === 'error') {
+            out.className = '';
+            out.innerHTML = `<div class="error-box">❌ ${d.message}</div>`;
+            statusBar.classList.add('hidden');
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    out.className = '';
+    out.innerHTML = `<div class="error-box">❌ Error de conexión: ${e.message}</div>`;
+    statusBar.classList.add('hidden');
+  }
+  btn.disabled = false;
+  await refreshPlanStatus();
 }
 </script>
 </body>

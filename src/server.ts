@@ -16,7 +16,7 @@ import type { AthleteProfile, DailyCheckin } from './coach/index';
 const PORT = parseInt(process.env.PORT ?? '3005');
 const ANTHROPIC_API_KEY_ENV = process.env.ANTHROPIC_API_KEY ?? null;
 
-const PROFILE_DIR = join(homedir(), '.garmin-mcp');
+const PROFILE_DIR = process.env.PROFILE_DIR ?? join(homedir(), '.garmin-mcp');
 const PROFILE_PATH = join(PROFILE_DIR, 'athlete-profile.json');
 const CREDS_PATH = join(PROFILE_DIR, 'credentials.json');
 const __dir = dirname(fileURLToPath(import.meta.url));

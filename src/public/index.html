@@ -33,25 +33,34 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 /* ── Desktop tabs bar (hidden on mobile) ── */
 .tabs-bar{display:none}
 
-/* ── Desktop layout ── */
+/* ── Tab item base (always present) ── */
+.tab-item{flex-shrink:0;padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;-webkit-tap-highlight-color:transparent;transition:color .15s,border-color .15s;position:relative}
+.tab-item.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-item:hover:not(.active){color:var(--text)}
+.tab-dot{position:absolute;top:8px;right:10px;width:5px;height:5px;border-radius:50%;background:var(--green);display:none}
+.tab-dot.show{display:block}
+
+/* ── Desktop layout (applied via JS class on <html>) ── */
+html.desktop .body-wrap{flex-direction:row!important}
+html.desktop .objetivos-panel,html.desktop .objetivos-panel.mob-active{
+  display:flex!important;flex:0 0 360px!important;width:360px!important;
+  flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  border-right:1px solid var(--border);background:var(--surface)
+}
+html.desktop .output-panel,html.desktop .output-panel.mob-active{
+  display:flex!important;flex:1 1 0!important;min-width:0;
+  flex-direction:column;overflow:hidden
+}
+html.desktop .nav-bar{display:none!important}
+html.desktop .tabs-bar{display:flex;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ── Also keep media query as fallback ── */
 @media(min-width:768px){
   .body-wrap{flex-direction:row!important}
-  .objetivos-panel,.objetivos-panel.mob-active{
-    display:flex!important;flex:0 0 360px!important;width:360px!important;
-    flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;
-    border-right:1px solid var(--border);background:var(--surface)
-  }
-  .output-panel,.output-panel.mob-active{
-    display:flex!important;flex:1 1 0!important;min-width:0;
-    flex-direction:column;overflow:hidden
-  }
+  .objetivos-panel,.objetivos-panel.mob-active{display:flex!important;flex:0 0 360px!important;width:360px!important;flex-direction:column;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)}
+  .output-panel,.output-panel.mob-active{display:flex!important;flex:1 1 0!important;min-width:0;flex-direction:column;overflow:hidden}
   .nav-bar{display:none!important}
   .tabs-bar{display:flex;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .tab-item{flex-shrink:0;padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;-webkit-tap-highlight-color:transparent;transition:color .15s,border-color .15s;position:relative}
-  .tab-item.active{color:var(--accent);border-bottom-color:var(--accent)}
-  .tab-item:hover:not(.active){color:var(--text)}
-  .tab-dot{position:absolute;top:8px;right:10px;width:5px;height:5px;border-radius:50%;background:var(--green);display:none}
-  .tab-dot.show{display:block}
 }
 
 /* ── Header ── */
@@ -318,6 +327,17 @@ input[type=number]{text-align:center;padding:8px 4px}
 .modal-section.notes{border-color:var(--border)}
 .modal-section.notes .modal-section-hdr{background:var(--surface);color:var(--muted)}
 </style>
+<script>
+(function(){
+  function applyLayout(){
+    var d=window.innerWidth>=768;
+    document.documentElement.classList.toggle('desktop',d);
+    document.documentElement.classList.toggle('mobile',!d);
+  }
+  applyLayout();
+  window.addEventListener('resize',applyLayout);
+})();
+</script>
 </head>
 <body>
 
@@ -546,7 +566,7 @@ input[type=number]{text-align:center;padding:8px 4px}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:8px">
-          <button class="btn btn-primary btn-full" id="btnAnalyze" onclick="generatePlan2w()">🗓 Generar Plan 2 Semanas →</button>
+          <button class="btn btn-primary btn-full" id="btnAnalyzeSidebar" onclick="generatePlan2w()">🗓 Generar Plan 2 Semanas →</button>
           <div style="display:flex;gap:8px">
             <button class="btn btn-ghost btn-full" id="btnHistory" style="flex:1" onclick="analyzeHistory()">📊 Historial</button>
             <button class="btn btn-ghost btn-full" id="btnMacro" style="flex:1" onclick="generateMacroPlan()">📋 Plan Macro</button>
@@ -604,6 +624,9 @@ input[type=number]{text-align:center;padding:8px 4px}
 
     <!-- ── PLAN 2 SEMANAS ── -->
     <div class="screen" id="screenPlan2w">
+      <div class="screen-action">
+        <button class="btn btn-primary btn-full" id="btnAnalyze" onclick="generatePlan2w()">🗓 Generar Plan 2 Semanas →</button>
+      </div>
       <div class="screen-body">
         <div class="status-bar hidden" id="statusPlan2w"><div class="spinner"></div><span id="statusPlan2wMsg">Generando...</span></div>
         <div id="plan2wContent"><div class="empty"><div class="ico">🗓</div><p>Generá el plan desde <strong>Objetivos</strong> para ver tu planificación detallada.</p></div></div>
@@ -1462,7 +1485,7 @@ async function generatePlan2w() {
   const statusBar = document.getElementById('statusPlan2w');
   const statusMsg = document.getElementById('statusPlan2wMsg');
   const out = document.getElementById('plan2wContent');
-  document.getElementById('btnAnalyze').disabled = true;
+  [document.getElementById('btnAnalyze'), document.getElementById('btnAnalyzeSidebar')].forEach(b => { if(b) b.disabled = true; });
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Iniciando...';
   out.className = 'streaming'; out.textContent = '';
@@ -1491,7 +1514,7 @@ async function generatePlan2w() {
       onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
     });
   } catch (e) { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${e.message}</div>`; statusBar.classList.add('hidden'); }
-  document.getElementById('btnAnalyze').disabled = false;
+  [document.getElementById('btnAnalyze'), document.getElementById('btnAnalyzeSidebar')].forEach(b => { if(b) b.disabled = false; });
 }
 
 // ── cargarReal ────────────────────────────────────────────────

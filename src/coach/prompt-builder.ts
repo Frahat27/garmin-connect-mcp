@@ -325,7 +325,10 @@ export function buildUserMessage(
     lines.push(`\nFecha actual: ${garmin.fetchDate}. Generá el análisis completo y el plan de DOS SEMANAS detallado, incluyendo el bloque [PLAN_JSON] al final.`);
   }
 
-  return lines.join('\n');
+  const msg = lines.join('\n');
+  const histLen = historyContext ? Math.min(historyContext.length, 40_000) : 0;
+  console.error(`[buildUserMessage] total=${msg.length}ch (~${Math.round(msg.length/4)}tok) | history=${histLen}ch | activities=${garmin.activities.length} | sleepRaw=${garmin.sleepRaw ? JSON.stringify(garmin.sleepRaw).length : 0}ch_raw`);
+  return msg;
 }
 
 export function buildReviewMessage(

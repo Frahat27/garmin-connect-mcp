@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Garmin Coach</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -12,232 +12,268 @@
   --text:#e6edf3;--muted:#8b949e;--green:#3fb950;--red:#f85149;
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --mono:'SF Mono','Fira Code',monospace;
+  --hdr-h:52px;--nav-h:60px;--safe-bot:env(safe-area-inset-bottom,0px);
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5}
-.app{display:grid;grid-template-rows:52px 1fr;grid-template-columns:430px 1fr;height:100vh;overflow:hidden}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.5}
 
-/* ── Overlays ── */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;
-  justify-content:center;z-index:100;backdrop-filter:blur(6px)}
-.overlay.hidden{display:none}
-.overlay-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;
-  padding:36px 32px;width:100%;max-width:420px;text-align:center}
-.overlay-icon{font-size:44px;margin-bottom:14px}
-.overlay-box h2{font-size:20px;font-weight:700;margin-bottom:8px}
-.overlay-box p{font-size:13px;color:var(--muted);margin-bottom:24px;line-height:1.7}
-.overlay-box .field{text-align:left;margin-bottom:14px}
-.overlay-box label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px}
-.overlay-box input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
-  color:var(--text);padding:9px 12px;font-size:14px;outline:none;transition:border-color .15s}
-.overlay-box input:focus{border-color:var(--accent)}
-.overlay-error{color:var(--red);font-size:12px;margin-top:10px;min-height:18px}
-
-/* Progress bar */
-.progress-bar{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin:16px 0 10px}
-.progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .4s ease;width:0%}
-.progress-msg{font-size:12px;color:var(--muted)}
-.progress-count{font-size:11px;color:var(--muted);margin-top:4px}
+/* ── App shell ── */
+.app{display:flex;flex-direction:column;height:100dvh}
 
 /* ── Header ── */
-.hdr{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;
-  padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border);gap:12px}
-.hdr-left{display:flex;align-items:center;gap:10px}
-.hdr h1{font-size:15px;font-weight:700;letter-spacing:-.02em}
+.hdr{flex-shrink:0;height:var(--hdr-h);display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border);gap:10px}
+.hdr-title{display:flex;align-items:center;gap:8px}
+.hdr h1{font-size:16px;font-weight:700;letter-spacing:-.02em}
 .hdr h1 em{color:var(--accent);font-style:normal}
-.hdr-right{display:flex;align-items:center;gap:8px}
-.badge{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--accent-dim);color:var(--accent);font-weight:600}
-.btn{border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;padding:7px 16px;transition:opacity .15s}
-.btn:hover{opacity:.85}.btn:disabled{opacity:.45;cursor:not-allowed}
+.badge{font-size:10px;padding:2px 8px;border-radius:20px;background:var(--accent-dim);color:var(--accent);font-weight:600}
+.btn-account{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);
+  font-size:12px;font-weight:600;padding:6px 10px;cursor:pointer;white-space:nowrap;max-width:140px;
+  overflow:hidden;text-overflow:ellipsis;-webkit-tap-highlight-color:transparent}
+
+/* ── Screen wrap ── */
+.screen-wrap{flex:1;overflow:hidden;position:relative}
+.screen{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;flex-direction:column}
+.screen.active{display:flex}
+
+/* ── Bottom nav ── */
+.nav-bar{flex-shrink:0;height:calc(var(--nav-h) + var(--safe-bot));padding-bottom:var(--safe-bot);
+  display:flex;background:var(--surface);border-top:1px solid var(--border)}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 2px;
+  font-size:9px;font-weight:600;letter-spacing:.02em;-webkit-tap-highlight-color:transparent;
+  transition:color .15s;position:relative}
+.nav-item.active{color:var(--accent)}
+.nav-icon{font-size:19px;line-height:1}
+.nav-dot{position:absolute;top:6px;right:calc(50% - 14px);width:6px;height:6px;border-radius:50%;
+  background:var(--green);display:none}
+.nav-dot.show{display:block}
+
+/* ── Screen action bar ── */
+.screen-action{flex-shrink:0;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.screen-action .btn-row{display:flex;gap:8px}
+
+/* ── Buttons ── */
+.btn{border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;padding:10px 18px;
+  transition:opacity .15s;-webkit-tap-highlight-color:transparent;min-height:44px}
+.btn:active{opacity:.75}.btn:disabled{opacity:.4;cursor:not-allowed}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-full{width:100%;text-align:center;justify-content:center;display:flex;align-items:center;gap:8px}
 
-/* ── Form panel ── */
-.form-panel{overflow-y:auto;border-right:1px solid var(--border);padding:16px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px}
+/* ── Cards & Form ── */
+.screen-body{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px}
 .card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:12px}
 .field{margin-bottom:10px}.field:last-child{margin-bottom:0}
-label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
-input[type=text],input[type=number],input[type=date],select{
-  width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:5px;
-  color:var(--text);padding:6px 9px;font-size:13px;font-family:var(--font);outline:none;transition:border-color .15s}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],select{
+  width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);padding:10px 12px;font-size:16px;font-family:var(--font);outline:none;
+  transition:border-color .15s;-webkit-appearance:none}
 input:focus,select:focus{border-color:var(--accent)}
-input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
-input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;height:24px}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 .prio-group{display:flex;gap:6px}
-.prio-btn{flex:1;padding:5px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;
-  color:var(--muted);cursor:pointer;text-align:center;font-size:12px;font-weight:700;transition:all .15s}
+.prio-btn{flex:1;padding:8px 4px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  color:var(--muted);cursor:pointer;text-align:center;font-size:13px;font-weight:700;transition:all .15s;
+  min-height:44px;-webkit-tap-highlight-color:transparent}
 .prio-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
 
-/* Sport blocks with day picker */
-.sport-block{padding:8px 0;border-bottom:1px solid var(--border)}
+.sport-block{padding:10px 0;border-bottom:1px solid var(--border)}
 .sport-block:last-of-type{border-bottom:none}
-.sport-row{display:grid;grid-template-columns:80px 1fr 64px;align-items:center;gap:8px}
-.sport-lbl{font-size:12px;font-weight:600}
+.sport-row{display:grid;grid-template-columns:76px 1fr 56px;align-items:center;gap:8px}
+.sport-lbl{font-size:13px;font-weight:600}
 .slider-wrap{display:flex;align-items:center;gap:6px}
 .slider-wrap input[type=range]{flex:1}
-.sval{font-size:13px;font-weight:700;color:var(--accent);min-width:16px;text-align:center}
+.sval{font-size:14px;font-weight:700;color:var(--accent);min-width:16px;text-align:center}
 .sunit{font-size:10px;color:var(--muted)}
-input[type=number]{text-align:center}
-
-.day-picker{display:flex;gap:4px;margin-top:6px;padding-left:80px}
-.day-btn{width:30px;height:28px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;
+input[type=number]{text-align:center;padding:8px 4px}
+.day-picker{display:flex;gap:4px;margin-top:8px;padding-left:0}
+.day-btn{flex:1;height:34px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
   color:var(--muted);cursor:pointer;font-size:11px;font-weight:700;transition:all .15s;
-  display:flex;align-items:center;justify-content:center}
+  display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
 .day-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
 
-.level-group{display:flex;gap:5px}
-.level-btn{flex:1;padding:4px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;
-  color:var(--muted);cursor:pointer;text-align:center;font-size:11px;transition:all .15s}
+.level-group{display:flex;gap:6px}
+.level-btn{flex:1;padding:8px 4px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  color:var(--muted);cursor:pointer;text-align:center;font-size:12px;transition:all .15s;min-height:40px;
+  -webkit-tap-highlight-color:transparent}
 .level-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
 
-.check-field{display:flex;align-items:center;gap:8px;padding:4px 0}
-.check-field label{margin:0;color:var(--text);font-size:12px;cursor:pointer}
+.check-field{display:flex;align-items:center;gap:10px;padding:6px 0;min-height:44px}
+.check-field label{margin:0;color:var(--text);font-size:14px;cursor:pointer}
 .cond{display:none}.cond.on{display:block}
 .range-row{display:flex;align-items:center;gap:8px}
 .range-row input[type=range]{flex:1}
-.rval{font-size:15px;font-weight:700;color:var(--accent);min-width:22px;text-align:center}
+.rval{font-size:16px;font-weight:700;color:var(--accent);min-width:24px;text-align:center}
 .rsuffix{font-size:11px;color:var(--muted)}
 
-/* ── Output panel ── */
-.output-panel{overflow:hidden;display:flex;flex-direction:column}
-.tabs{display:flex;gap:4px;padding:12px 20px 0;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
-.tab{padding:8px 18px;background:transparent;border:none;border-bottom:2px solid transparent;
-  cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);transition:all .15s;margin-bottom:-1px}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab-content{flex:1;overflow-y:auto;padding:20px;display:none}
-.tab-content.active{display:block}
-
-.status-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);
-  border:1px solid var(--border);border-radius:8px;margin-bottom:14px;font-size:13px}
-.status-bar.hidden{display:none}
-.spinner{width:15px;height:15px;border:2px solid var(--border);border-top-color:var(--accent);
-  border-radius:50%;animation:spin .65s linear infinite;flex-shrink:0}
-@keyframes spin{to{transform:rotate(360deg)}}
-
-.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-height:400px;color:var(--muted);text-align:center}
-.empty .ico{font-size:48px;margin-bottom:14px}
-.empty p{font-size:13px;max-width:260px;line-height:1.6}
-.empty strong{color:var(--text)}
-
-/* Analysis output */
-.output h1{font-size:18px;font-weight:700;margin:24px 0 10px;border-bottom:1px solid var(--border);padding-bottom:8px}
-.output h2{font-size:15px;font-weight:600;margin:20px 0 8px;color:var(--accent)}
-.output h3{font-size:13px;font-weight:600;margin:14px 0 6px}
-.output p{margin:0 0 8px}
-.output ul{margin:0 0 8px 20px}.output li{margin-bottom:3px}
-.output strong{font-weight:600}
-.output hr{border:none;border-top:1px solid var(--border);margin:18px 0}
-.output table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}
-.output th,.output td{padding:6px 10px;border:1px solid var(--border);text-align:left}
-.output th{background:var(--surface);font-weight:600;color:var(--accent)}
-.output tr:nth-child(even) td{background:rgba(255,255,255,.02)}
-
-.streaming{white-space:pre-wrap;font-family:var(--mono);font-size:12px;
-  background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;line-height:1.6}
-.streaming::after{content:'▋';display:inline-block;animation:blink 1s step-end infinite;color:var(--accent)}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-.error-box{padding:12px 16px;background:rgba(248,81,73,.08);border:1px solid var(--red);border-radius:8px;color:var(--red);font-size:13px}
-
-/* ── Plan status banner ── */
-.plan-banner{display:flex;align-items:center;gap:10px;padding:7px 14px;
+/* ── Plan banner ── */
+.plan-banner{display:flex;align-items:center;gap:8px;padding:8px 16px;
   background:var(--surface);border-bottom:1px solid var(--border);font-size:12px;flex-shrink:0}
 .plan-banner.hidden{display:none}
 .plan-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .plan-dot.review{background:var(--green)}
-.plan-dot.planning_with_review{background:var(--accent)}
-.plan-dot.planning{background:var(--muted)}
 .plan-banner-text{color:var(--muted);flex:1}
 .plan-banner-text strong{color:var(--text)}
 
+/* ── Status bar ── */
+.status-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);
+  border:1px solid var(--border);border-radius:8px;margin-bottom:12px;font-size:13px}
+.status-bar.hidden{display:none}
+.spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .65s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Empty states ── */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:300px;color:var(--muted);text-align:center;padding:24px}
+.empty .ico{font-size:48px;margin-bottom:14px}
+.empty p{font-size:14px;max-width:280px;line-height:1.7}
+.empty strong{color:var(--text)}
+
+/* ── Overlays ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;align-items:flex-end;
+  justify-content:center;z-index:100;backdrop-filter:blur(6px)}
+.overlay.hidden{display:none}
+.overlay-box{background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;
+  padding:28px 24px calc(28px + var(--safe-bot));width:100%;max-width:480px;text-align:center}
+.overlay-icon{font-size:44px;margin-bottom:14px}
+.overlay-box h2{font-size:20px;font-weight:700;margin-bottom:8px}
+.overlay-box p{font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.7}
+.overlay-box .field{text-align:left;margin-bottom:14px}
+.overlay-box label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+.overlay-error{color:var(--red);font-size:13px;margin-top:10px;min-height:20px}
+
+/* Progress */
+.progress-bar{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin:16px 0 10px}
+.progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .4s ease;width:0%}
+.progress-msg{font-size:13px;color:var(--muted)}
+
+/* ── Output / markdown ── */
+.output{padding:0}
+.output h1{font-size:18px;font-weight:700;margin:20px 0 10px;border-bottom:1px solid var(--border);padding-bottom:8px}
+.output h2{font-size:15px;font-weight:600;margin:18px 0 8px;color:var(--accent)}
+.output h3{font-size:14px;font-weight:600;margin:14px 0 6px}
+.output p{margin:0 0 8px;font-size:14px}
+.output ul{margin:0 0 8px 18px}.output li{margin-bottom:4px;font-size:14px}
+.output strong{font-weight:600}
+.output hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+.output table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}
+.output th,.output td{padding:6px 8px;border:1px solid var(--border);text-align:left}
+.output th{background:var(--surface);font-weight:600;color:var(--accent)}
+.output tr:nth-child(even) td{background:rgba(255,255,255,.02)}
+.streaming{white-space:pre-wrap;font-family:var(--mono);font-size:12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;line-height:1.6}
+.streaming::after{content:'▋';display:inline-block;animation:blink 1s step-end infinite;color:var(--accent)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.error-box{padding:12px 14px;background:rgba(248,81,73,.08);border:1px solid var(--red);border-radius:8px;color:var(--red);font-size:13px}
+
+/* ── Charts ── */
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.chart-row.single{grid-template-columns:1fr}
+.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;min-height:200px;display:flex;align-items:center;justify-content:center}
+.chart-wrap canvas{max-height:220px}
+@media(max-width:480px){.chart-row{grid-template-columns:1fr}}
+
 /* ── Calendar ── */
-.cal-week{margin-bottom:28px}
+.cal-week{margin-bottom:24px}
 .cal-week-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;
-  letter-spacing:.06em;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:8px}
 .cal-week-title::after{content:'';flex:1;height:1px;background:var(--border)}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.cal-grid-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(52px,1fr));gap:5px;min-width:380px}
 .cal-day{background:var(--surface);border:1px solid var(--border);border-radius:8px;
-  padding:10px 8px;min-height:90px;transition:border-color .15s;min-width:0;overflow:hidden}
+  padding:8px 6px;min-height:80px;min-width:0;overflow:hidden;transition:border-color .15s}
 .cal-day.has-sessions{border-color:rgba(249,115,22,.2)}
-.cal-day.rest{opacity:.55}
-.cal-day-name{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-.cal-day-num{font-size:22px;font-weight:700;margin:2px 0 8px;color:var(--text)}
+.cal-day.rest{opacity:.5}
+.cal-day-name{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.cal-day-num{font-size:20px;font-weight:700;margin:2px 0 6px;color:var(--text)}
 .cal-day.today .cal-day-num{color:var(--accent)}
 .session-chip{display:block;width:100%;text-align:left;background:var(--accent-dim);
-  border:1px solid rgba(249,115,22,.3);border-radius:5px;padding:5px 7px;font-size:11px;
-  cursor:pointer;margin-bottom:4px;color:var(--text);transition:all .15s;line-height:1.3;
-  min-width:0;overflow:hidden}
-.session-chip:hover{background:var(--accent-mid);border-color:var(--accent)}
+  border:1px solid rgba(249,115,22,.3);border-radius:5px;padding:4px 6px;font-size:10px;
+  cursor:pointer;margin-bottom:3px;color:var(--text);transition:all .15s;line-height:1.3;
+  min-width:0;overflow:hidden;-webkit-tap-highlight-color:transparent}
+.session-chip:active{background:var(--accent-mid)}
 .session-chip.done{background:rgba(63,185,80,.1);border-color:rgba(63,185,80,.4)}
-.session-chip.done:hover{background:rgba(63,185,80,.2);border-color:var(--green)}
 .session-chip.partial{background:rgba(210,153,34,.1);border-color:rgba(210,153,34,.4)}
-.session-chip.partial:hover{background:rgba(210,153,34,.2)}
 .session-chip.missed{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.35)}
-.session-chip.missed:hover{background:rgba(248,81,73,.15)}
-.chip-emoji{font-size:14px}
+.chip-emoji{font-size:13px}
 .chip-title{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.chip-meta{color:var(--muted);font-size:10px}
-.chip-status{font-size:9px;font-weight:700;float:right;margin-top:1px;text-transform:uppercase;letter-spacing:.04em}
+.chip-meta{color:var(--muted);font-size:9px}
+.chip-status{font-size:8px;font-weight:700;float:right;text-transform:uppercase}
 .chip-status.done{color:var(--green)}.chip-status.partial{color:#d2991e}.chip-status.missed{color:var(--red)}
-.cal-rest-lbl{font-size:11px;color:var(--muted);margin-top:4px}
+.cal-rest-lbl{font-size:10px;color:var(--muted);margin-top:4px}
 .cal-empty{display:flex;align-items:center;justify-content:center;min-height:300px;color:var(--muted);
-  flex-direction:column;gap:10px;font-size:13px}
+  flex-direction:column;gap:10px;font-size:14px}
 .cal-adherencia{display:flex;align-items:center;gap:12px;padding:10px 14px;
-  background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:13px}
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:14px}
 .adherencia-score{font-size:26px;font-weight:700;color:var(--accent)}
 .adherencia-label{color:var(--muted);font-size:12px}
 
 /* ── Chat ── */
-.tab-content.active#tabChat{display:flex;flex-direction:column;padding:0;overflow:hidden}
-#chatMessages{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
-.chat-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--muted);text-align:center;gap:8px;font-size:13px}
-.chat-bubble{max-width:78%;border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;word-break:break-word}
+#screenChat.active{display:flex;flex-direction:column}
+.chat-plan-banner{display:flex;align-items:center;gap:10px;padding:8px 16px;
+  background:rgba(63,185,80,.1);border-bottom:1px solid rgba(63,185,80,.3);
+  font-size:13px;color:var(--green);flex-shrink:0;cursor:pointer}
+.chat-plan-banner.hidden{display:none}
+#chatMessages{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;
+  -webkit-overflow-scrolling:touch}
+.chat-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;color:var(--muted);text-align:center;gap:10px;font-size:14px;padding:24px}
+.chat-bubble{max-width:82%;border-radius:14px;padding:10px 14px;font-size:14px;line-height:1.6;word-break:break-word}
 .chat-bubble.user{align-self:flex-end;background:var(--accent-dim);border:1px solid rgba(249,115,22,.3)}
-.chat-bubble.assistant{align-self:flex-start;background:var(--surface);border:1px solid var(--border);min-width:120px}
+.chat-bubble.assistant{align-self:flex-start;background:var(--surface);border:1px solid var(--border);min-width:100px}
 .chat-bubble.assistant.is-streaming{white-space:pre-wrap;font-family:var(--mono);font-size:12px}
 .chat-bubble.assistant.is-streaming::after{content:'▋';display:inline-block;animation:blink 1s step-end infinite;color:var(--accent)}
-.chat-bubble.assistant h2{font-size:13px;font-weight:600;margin:8px 0 4px;color:var(--accent)}
-.chat-bubble.assistant h3{font-size:12px;font-weight:600;margin:6px 0 3px}
-.chat-bubble.assistant p{margin:0 0 6px}.chat-bubble.assistant ul{margin:0 0 6px 16px}
-.chat-bubble.assistant li{margin-bottom:2px}.chat-bubble.assistant strong{font-weight:600}
+.chat-bubble.assistant h2{font-size:14px;font-weight:600;margin:8px 0 4px;color:var(--accent)}
+.chat-bubble.assistant h3{font-size:13px;font-weight:600;margin:6px 0 3px}
+.chat-bubble.assistant p{margin:0 0 6px;font-size:13px}
+.chat-bubble.assistant ul{margin:0 0 6px 16px}
+.chat-bubble.assistant li{margin-bottom:2px;font-size:13px}
 .chat-bubble.assistant table{width:100%;border-collapse:collapse;margin:6px 0;font-size:11px}
-.chat-bubble.assistant th,.chat-bubble.assistant td{padding:4px 8px;border:1px solid var(--border);text-align:left}
+.chat-bubble.assistant th,.chat-bubble.assistant td{padding:4px 7px;border:1px solid var(--border);text-align:left}
 .chat-bubble.assistant th{background:var(--surface2);font-weight:600;color:var(--accent)}
-.chat-input-area{flex-shrink:0;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface);display:flex;gap:8px;align-items:flex-end}
-#chatInput{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px;font-family:var(--font);resize:none;outline:none;transition:border-color .15s;line-height:1.5;max-height:110px;overflow-y:auto}
+.chat-input-wrap{flex-shrink:0;background:var(--surface);border-top:1px solid var(--border)}
+.chat-input-area{display:flex;gap:8px;align-items:flex-end;padding:10px 12px}
+#chatInput{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+  color:var(--text);padding:10px 12px;font-size:16px;font-family:var(--font);resize:none;outline:none;
+  transition:border-color .15s;line-height:1.5;max-height:110px;overflow-y:auto}
 #chatInput:focus{border-color:var(--accent)}
-.chat-plan-banner{display:flex;align-items:center;gap:10px;padding:8px 16px;background:rgba(63,185,80,.1);border-bottom:1px solid rgba(63,185,80,.3);font-size:12px;color:var(--green);flex-shrink:0;cursor:pointer;transition:background .15s}
-.chat-plan-banner:hover{background:rgba(63,185,80,.18)}.chat-plan-banner.hidden{display:none}
+.chat-send-btn{background:var(--accent);border:none;border-radius:10px;color:#fff;
+  font-size:18px;cursor:pointer;width:44px;height:44px;flex-shrink:0;display:flex;align-items:center;
+  justify-content:center;-webkit-tap-highlight-color:transparent}
+.chat-send-btn:disabled{opacity:.4}
+.chat-actions{padding:6px 12px 10px;display:flex;justify-content:flex-end}
 
 /* ── Session modal ── */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;
   justify-content:center;z-index:200;backdrop-filter:blur(4px)}
 .modal-overlay.hidden{display:none}
-.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;
-  padding:28px;width:100%;max-width:540px;max-height:85vh;overflow-y:auto;position:relative}
-.modal-close{position:absolute;top:14px;right:16px;background:var(--surface2);border:1px solid var(--border);
-  border-radius:6px;color:var(--muted);font-size:16px;cursor:pointer;width:28px;height:28px;
-  display:flex;align-items:center;justify-content:center;transition:all .15s}
-.modal-close:hover{color:var(--text);border-color:var(--text)}
-.modal-sport{font-size:38px;margin-bottom:10px}
-.modal-title{font-size:20px;font-weight:700;margin-bottom:6px}
-.modal-badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;
+  padding:20px 20px calc(20px + var(--safe-bot));width:100%;max-width:600px;max-height:88vh;
+  overflow-y:auto;position:relative}
+.modal-close{position:absolute;top:14px;right:14px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;color:var(--muted);font-size:16px;cursor:pointer;width:32px;height:32px;
+  display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.modal-sport{font-size:36px;margin-bottom:8px}
+.modal-title{font-size:19px;font-weight:700;margin-bottom:6px}
+.modal-badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
 .modal-badge{background:var(--surface2);border:1px solid var(--border);border-radius:20px;
-  padding:3px 10px;font-size:11px;color:var(--muted)}
+  padding:4px 10px;font-size:12px;color:var(--muted)}
 .modal-badge.rpe{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
-.modal-detail{font-size:13px;line-height:1.8;color:var(--text)}
 .modal-sections{display:flex;flex-direction:column;gap:8px}
 .modal-section{border-radius:8px;overflow:hidden;border:1px solid var(--border)}
-.modal-section-hdr{display:flex;align-items:center;gap:7px;padding:7px 12px;
+.modal-section-hdr{display:flex;align-items:center;gap:7px;padding:8px 12px;
   font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
 .modal-section-body{padding:10px 12px;background:var(--surface2);color:var(--text)}
 .modal-item-list{display:flex;flex-direction:column;gap:5px}
 .modal-item{display:flex;align-items:flex-start;gap:8px;padding:7px 10px;
-  background:rgba(255,255,255,.04);border-radius:6px;font-size:13px;line-height:1.5}
+  background:rgba(255,255,255,.04);border-radius:6px;font-size:14px;line-height:1.5}
 .modal-item::before{content:'▸';color:var(--muted);flex-shrink:0;margin-top:1px;font-size:11px}
-.modal-item-single{padding:10px 12px;font-size:13px;line-height:1.7}
+.modal-item-single{padding:10px 12px;font-size:14px;line-height:1.7}
 .modal-section.warmup{border-color:rgba(249,115,22,.35)}
 .modal-section.warmup .modal-section-hdr{background:rgba(249,115,22,.12);color:var(--accent)}
 .modal-section.main{border-color:rgba(63,185,80,.3)}
@@ -246,16 +282,6 @@ input[type=number]{text-align:center}
 .modal-section.cooldown .modal-section-hdr{background:rgba(88,166,255,.08);color:#79c0ff}
 .modal-section.notes{border-color:var(--border)}
 .modal-section.notes .modal-section-hdr{background:var(--surface);color:var(--muted)}
-
-/* ── Action buttons card ── */
-.btn-action{width:100%;text-align:left;padding:10px 14px;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:10px}
-.btn-action:last-child{margin-bottom:0}
-
-/* ── Chart containers ── */
-.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
-.chart-row.single{grid-template-columns:1fr}
-.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;min-height:220px;display:flex;align-items:center;justify-content:center}
-.chart-wrap canvas{max-height:240px}
 </style>
 </head>
 <body>
@@ -266,19 +292,13 @@ input[type=number]{text-align:center}
     <div class="overlay-icon">🏃</div>
     <h2>Garmin <span style="color:var(--accent)">Coach</span></h2>
     <p>Ingresá tus credenciales para comenzar.</p>
-    <div class="field">
-      <label>Email de Garmin</label>
-      <input type="email" id="loginEmail" placeholder="tu@email.com" autocomplete="email">
-    </div>
-    <div class="field">
-      <label>Contraseña de Garmin</label>
-      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
-    </div>
-    <div class="field">
-      <label>Anthropic API Key</label>
-      <input type="password" id="loginAnthropicKey" placeholder="sk-ant-...">
-    </div>
-    <button class="btn btn-primary" id="btnLogin" style="width:100%;margin-top:6px;padding:10px;font-size:14px" onclick="submitLogin()">Ingresar →</button>
+    <div class="field"><label>Email de Garmin</label>
+      <input type="email" id="loginEmail" placeholder="tu@email.com" autocomplete="email"></div>
+    <div class="field"><label>Contraseña de Garmin</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password"></div>
+    <div class="field"><label>Anthropic API Key</label>
+      <input type="password" id="loginAnthropicKey" placeholder="sk-ant-..."></div>
+    <button class="btn btn-primary btn-full" id="btnLogin" style="margin-top:6px" onclick="submitLogin()">Ingresar →</button>
     <div class="overlay-error" id="loginError"></div>
   </div>
 </div>
@@ -288,10 +308,9 @@ input[type=number]{text-align:center}
   <div class="overlay-box">
     <div class="overlay-icon">📊</div>
     <h2>Mapeando tu historial</h2>
-    <p>Primera vez detectada. Vamos a analizar los últimos <strong>4 años</strong> de entrenamiento en Garmin.<br>Solo ocurre una vez.</p>
+    <p>Primera vez detectada. Vamos a analizar los últimos <strong>4 años</strong> de entrenamiento.<br>Solo ocurre una vez.</p>
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     <div class="progress-msg" id="historyStatusMsg">Iniciando...</div>
-    <div class="progress-count" id="historyCount"></div>
   </div>
 </div>
 
@@ -307,7 +326,7 @@ input[type=number]{text-align:center}
       <span class="modal-badge rpe" id="modalRPE"></span>
       <span class="modal-badge" id="modalScore" style="display:none"></span>
     </div>
-    <div id="modalRealidad" style="display:none;margin-bottom:10px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border);font-size:12px">
+    <div id="modalRealidad" style="display:none;margin-bottom:10px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border);font-size:13px">
       <span style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Realidad</span>
       <div id="modalRealidadText" style="margin-top:4px;color:var(--text)"></div>
     </div>
@@ -319,279 +338,345 @@ input[type=number]{text-align:center}
 
   <!-- HEADER -->
   <header class="hdr">
-    <div class="hdr-left">
+    <div class="hdr-title">
       <h1>🏃 Garmin <em>Coach</em></h1>
-      <span class="badge">IA Personal</span>
+      <span class="badge">IA</span>
     </div>
-    <div class="hdr-right">
-      <button class="btn btn-ghost" id="btnHistory" onclick="analyzeHistory()" style="font-size:12px">📊 Historial</button>
-      <button class="btn btn-ghost" id="btnMacro" onclick="generateMacroPlan()" style="font-size:12px">📋 Plan Macro</button>
-      <button class="btn btn-primary" id="btnAnalyze" onclick="generatePlan2w()" style="font-size:12px">🗓 Plan 2 Sem →</button>
-      <button class="btn btn-ghost" id="btnCargarReal" onclick="cargarReal()" disabled style="font-size:12px">🔄 Cargar Real</button>
-      <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
-      <button class="btn btn-ghost" id="btnAccount" onclick="showLogin()" style="font-size:12px">⚙ Cuenta</button>
-    </div>
+    <button class="btn-account" id="btnAccount" onclick="showLogin()">⚙ Cuenta</button>
   </header>
 
-  <!-- FORM PANEL -->
-  <aside class="form-panel">
+  <!-- SCREENS -->
+  <div class="screen-wrap">
 
-    <div class="card">
-      <div class="card-title">🎯 Objetivo</div>
-      <div class="field"><label>Nombre del evento</label><input type="text" id="eventName" placeholder="Ej: Maratón Buenos Aires 2026"></div>
-      <div class="field"><label>Disciplina y distancia</label><input type="text" id="eventDistance" placeholder="Ej: Maratón 42km, Ironman 70.3"></div>
-      <div class="row2">
-        <div class="field"><label>Fecha del evento</label><input type="date" id="eventDate"></div>
-        <div class="field">
-          <label>Prioridad</label>
-          <div class="prio-group">
-            <button type="button" class="prio-btn active" data-p="A" onclick="setPrio('A')">A</button>
-            <button type="button" class="prio-btn" data-p="B" onclick="setPrio('B')">B</button>
-            <button type="button" class="prio-btn" data-p="C" onclick="setPrio('C')">C</button>
+    <!-- ── OBJETIVOS ── -->
+    <div class="screen active" id="screenObjetivos">
+      <div class="plan-banner hidden" id="planBanner">
+        <div class="plan-dot" id="planDot"></div>
+        <span class="plan-banner-text" id="planBannerText"></span>
+      </div>
+      <div class="screen-body">
+
+        <div class="card" style="border-color:rgba(249,115,22,.35)">
+          <div class="card-title" style="color:var(--accent)">📊 Check-in del día</div>
+          <div class="row2">
+            <div class="field"><label>Peso hoy (kg)</label><input type="number" id="weight" step="0.1" placeholder="72.5"></div>
+            <div class="field"><label>RPE último entrenamiento</label>
+              <div class="range-row"><input type="range" min="0" max="10" value="7" id="rpeLastSession" oninput="document.getElementById('rpev').textContent=this.value"><span class="rval" id="rpev">7</span></div>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Soreness muscular</label>
+              <div class="range-row"><input type="range" min="0" max="10" value="3" id="muscleSoreness" oninput="document.getElementById('sorv').textContent=this.value"><span class="rval" id="sorv">3</span></div>
+            </div>
+            <div class="field"><label>Motivación hoy</label>
+              <div class="range-row"><input type="range" min="0" max="10" value="7" id="motivation" oninput="document.getElementById('motv').textContent=this.value"><span class="rval" id="motv">7</span></div>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Calidad de sueño</label>
+              <div class="range-row"><input type="range" min="0" max="10" value="7" id="sleepQuality" oninput="document.getElementById('slpv').textContent=this.value"><span class="rval" id="slpv">7</span></div>
+            </div>
+            <div class="field"><label>Dolor / molestia hoy</label><input type="text" id="newPainOrIssue" placeholder="Ej: pantorrilla"></div>
           </div>
         </div>
-      </div>
-      <div class="field"><label>Objetivo secundario (opcional)</label><input type="text" id="secondaryObjective" placeholder="Ej: Bajar 5K a sub-20"></div>
-    </div>
 
-    <div class="card">
-      <div class="card-title">📅 Disponibilidad semanal</div>
+        <div class="card">
+          <div class="card-title">🎯 Objetivo</div>
+          <div class="field"><label>Nombre del evento</label><input type="text" id="eventName" placeholder="Ej: Maratón Buenos Aires 2026"></div>
+          <div class="field"><label>Disciplina y distancia</label><input type="text" id="eventDistance" placeholder="Ej: Ironman 70.3, Maratón 42km"></div>
+          <div class="row2">
+            <div class="field"><label>Fecha del evento</label><input type="date" id="eventDate"></div>
+            <div class="field"><label>Prioridad</label>
+              <div class="prio-group">
+                <button type="button" class="prio-btn active" data-p="A" onclick="setPrio('A')">A</button>
+                <button type="button" class="prio-btn" data-p="B" onclick="setPrio('B')">B</button>
+                <button type="button" class="prio-btn" data-p="C" onclick="setPrio('C')">C</button>
+              </div>
+            </div>
+          </div>
+          <div class="field"><label>Objetivo secundario (opcional)</label><input type="text" id="secondaryObjective" placeholder="Ej: Bajar 5K a sub-20"></div>
+        </div>
 
-      <div class="sport-block">
-        <div class="sport-row">
-          <span class="sport-lbl">🏃 Running</span>
-          <div class="slider-wrap"><input type="range" min="0" max="7" value="3" id="runningDays" oninput="sv('runningDays','rvd')"><span class="sval" id="rvd">3</span><span class="sunit">días</span></div>
-          <input type="number" id="runningMaxMinutes" value="60" min="15" max="300" placeholder="min">
+        <div class="card">
+          <div class="card-title">📅 Disponibilidad semanal</div>
+          <div class="sport-block">
+            <div class="sport-row">
+              <span class="sport-lbl">🏃 Running</span>
+              <div class="slider-wrap"><input type="range" min="0" max="7" value="3" id="runningDays" oninput="sv('runningDays','rvd')"><span class="sval" id="rvd">3</span><span class="sunit">d</span></div>
+              <input type="number" id="runningMaxMinutes" value="60" min="15" max="300" placeholder="min">
+            </div>
+            <div class="day-picker" id="dp-running">
+              <button class="day-btn" onclick="toggleDay('running',0)">L</button>
+              <button class="day-btn" onclick="toggleDay('running',1)">M</button>
+              <button class="day-btn" onclick="toggleDay('running',2)">M</button>
+              <button class="day-btn" onclick="toggleDay('running',3)">J</button>
+              <button class="day-btn" onclick="toggleDay('running',4)">V</button>
+              <button class="day-btn" onclick="toggleDay('running',5)">S</button>
+              <button class="day-btn" onclick="toggleDay('running',6)">D</button>
+            </div>
+          </div>
+          <div class="sport-block">
+            <div class="sport-row">
+              <span class="sport-lbl">🏊 Natación</span>
+              <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="swimmingDays" oninput="sv('swimmingDays','svd')"><span class="sval" id="svd">2</span><span class="sunit">d</span></div>
+              <input type="number" id="swimmingMaxMinutes" value="60" min="15" max="180" placeholder="min">
+            </div>
+            <div class="day-picker" id="dp-swimming">
+              <button class="day-btn" onclick="toggleDay('swimming',0)">L</button>
+              <button class="day-btn" onclick="toggleDay('swimming',1)">M</button>
+              <button class="day-btn" onclick="toggleDay('swimming',2)">M</button>
+              <button class="day-btn" onclick="toggleDay('swimming',3)">J</button>
+              <button class="day-btn" onclick="toggleDay('swimming',4)">V</button>
+              <button class="day-btn" onclick="toggleDay('swimming',5)">S</button>
+              <button class="day-btn" onclick="toggleDay('swimming',6)">D</button>
+            </div>
+          </div>
+          <div class="sport-block">
+            <div class="sport-row">
+              <span class="sport-lbl">🚴 Ciclismo</span>
+              <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="cyclingDays" oninput="sv('cyclingDays','cvd')"><span class="sval" id="cvd">2</span><span class="sunit">d</span></div>
+              <input type="number" id="cyclingMaxMinutes" value="90" min="15" max="360" placeholder="min">
+            </div>
+            <div class="day-picker" id="dp-cycling">
+              <button class="day-btn" onclick="toggleDay('cycling',0)">L</button>
+              <button class="day-btn" onclick="toggleDay('cycling',1)">M</button>
+              <button class="day-btn" onclick="toggleDay('cycling',2)">M</button>
+              <button class="day-btn" onclick="toggleDay('cycling',3)">J</button>
+              <button class="day-btn" onclick="toggleDay('cycling',4)">V</button>
+              <button class="day-btn" onclick="toggleDay('cycling',5)">S</button>
+              <button class="day-btn" onclick="toggleDay('cycling',6)">D</button>
+            </div>
+          </div>
+          <div class="sport-block">
+            <div class="sport-row">
+              <span class="sport-lbl">🏋️ Gimnasio</span>
+              <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="gymDays" oninput="sv('gymDays','gvd')"><span class="sval" id="gvd">2</span><span class="sunit">d</span></div>
+              <input type="number" id="gymMaxMinutes" value="60" min="20" max="120" placeholder="min">
+            </div>
+            <div class="day-picker" id="dp-gym">
+              <button class="day-btn" onclick="toggleDay('gym',0)">L</button>
+              <button class="day-btn" onclick="toggleDay('gym',1)">M</button>
+              <button class="day-btn" onclick="toggleDay('gym',2)">M</button>
+              <button class="day-btn" onclick="toggleDay('gym',3)">J</button>
+              <button class="day-btn" onclick="toggleDay('gym',4)">V</button>
+              <button class="day-btn" onclick="toggleDay('gym',5)">S</button>
+              <button class="day-btn" onclick="toggleDay('gym',6)">D</button>
+            </div>
+          </div>
+          <div class="field" style="margin-top:10px">
+            <label>Días inamovibles sin entrenamiento</label>
+            <input type="text" id="restDays" placeholder='"domingo" o "ninguno"'>
+          </div>
         </div>
-        <div class="day-picker" id="dp-running">
-          <button class="day-btn" onclick="toggleDay('running',0)">L</button>
-          <button class="day-btn" onclick="toggleDay('running',1)">M</button>
-          <button class="day-btn" onclick="toggleDay('running',2)">M</button>
-          <button class="day-btn" onclick="toggleDay('running',3)">J</button>
-          <button class="day-btn" onclick="toggleDay('running',4)">V</button>
-          <button class="day-btn" onclick="toggleDay('running',5)">S</button>
-          <button class="day-btn" onclick="toggleDay('running',6)">D</button>
-        </div>
-      </div>
 
-      <div class="sport-block">
-        <div class="sport-row">
-          <span class="sport-lbl">🏊 Natación</span>
-          <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="swimmingDays" oninput="sv('swimmingDays','svd')"><span class="sval" id="svd">2</span><span class="sunit">días</span></div>
-          <input type="number" id="swimmingMaxMinutes" value="60" min="15" max="180" placeholder="min">
+        <div class="card">
+          <div class="card-title">🩺 Estado físico</div>
+          <div class="check-field"><input type="checkbox" id="activeInjury" onchange="toggleInjury()"><label for="activeInjury">Tengo una lesión o dolor activo</label></div>
+          <div class="cond" id="injuryFields">
+            <div class="field" style="margin-top:8px"><label>¿Dónde y qué tipo?</label><input type="text" id="injuryDescription" placeholder="Ej: Rodilla derecha, tendinitis rotuliana"></div>
+            <div class="field"><label>Intensidad del dolor</label>
+              <div class="range-row"><input type="range" min="0" max="10" value="3" id="injuryPain" oninput="document.getElementById('ipv').textContent=this.value"><span class="rval" id="ipv">3</span><span class="rsuffix">/10</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:8px"><label>Lesiones recientes (opcional)</label><input type="text" id="recentInjuries" placeholder="Ej: Fractura por estrés en tibia (dic 2025)"></div>
+          <div class="field" style="margin-top:10px">
+            <label>Nivel en running</label>
+            <div class="level-group" data-f="levelRunning">
+              <button type="button" class="level-btn" onclick="setLvl('levelRunning','principiante')">Principiante</button>
+              <button type="button" class="level-btn active" onclick="setLvl('levelRunning','intermedio')">Intermedio</button>
+              <button type="button" class="level-btn" onclick="setLvl('levelRunning','avanzado')">Avanzado</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Nivel en natación</label>
+            <div class="level-group" data-f="levelSwimming">
+              <button type="button" class="level-btn" onclick="setLvl('levelSwimming','principiante')">Principiante</button>
+              <button type="button" class="level-btn active" onclick="setLvl('levelSwimming','intermedio')">Intermedio</button>
+              <button type="button" class="level-btn" onclick="setLvl('levelSwimming','avanzado')">Avanzado</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Nivel en ciclismo</label>
+            <div class="level-group" data-f="levelCycling">
+              <button type="button" class="level-btn" onclick="setLvl('levelCycling','principiante')">Principiante</button>
+              <button type="button" class="level-btn active" onclick="setLvl('levelCycling','intermedio')">Intermedio</button>
+              <button type="button" class="level-btn" onclick="setLvl('levelCycling','avanzado')">Avanzado</button>
+            </div>
+          </div>
+          <div class="field" style="margin-top:10px">
+            <div class="check-field"><input type="checkbox" id="weightGoal"><label for="weightGoal">Tengo objetivo de composición corporal</label></div>
+            <div class="check-field"><input type="checkbox" id="logsAllActivities" checked><label for="logsAllActivities">Logeo todas mis actividades en Garmin</label></div>
+          </div>
+          <div class="field"><label>Disciplinas sin loguear</label><input type="text" id="missingDisciplines" placeholder="Ej: natación en pileta"></div>
         </div>
-        <div class="day-picker" id="dp-swimming">
-          <button class="day-btn" onclick="toggleDay('swimming',0)">L</button>
-          <button class="day-btn" onclick="toggleDay('swimming',1)">M</button>
-          <button class="day-btn" onclick="toggleDay('swimming',2)">M</button>
-          <button class="day-btn" onclick="toggleDay('swimming',3)">J</button>
-          <button class="day-btn" onclick="toggleDay('swimming',4)">V</button>
-          <button class="day-btn" onclick="toggleDay('swimming',5)">S</button>
-          <button class="day-btn" onclick="toggleDay('swimming',6)">D</button>
-        </div>
-      </div>
 
-      <div class="sport-block">
-        <div class="sport-row">
-          <span class="sport-lbl">🚴 Ciclismo</span>
-          <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="cyclingDays" oninput="sv('cyclingDays','cvd')"><span class="sval" id="cvd">2</span><span class="sunit">días</span></div>
-          <input type="number" id="cyclingMaxMinutes" value="90" min="15" max="360" placeholder="min">
+        <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:8px">
+          <button class="btn btn-primary btn-full" id="btnAnalyze" onclick="generatePlan2w()">🗓 Generar Plan 2 Semanas →</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-full" id="btnHistory" style="flex:1" onclick="analyzeHistory()">📊 Historial</button>
+            <button class="btn btn-ghost btn-full" id="btnMacro" style="flex:1" onclick="generateMacroPlan()">📋 Plan Macro</button>
+            <button class="btn btn-ghost btn-full" id="btnCargarReal" style="flex:1" onclick="cargarReal()" disabled>🔄 Real</button>
+          </div>
         </div>
-        <div class="day-picker" id="dp-cycling">
-          <button class="day-btn" onclick="toggleDay('cycling',0)">L</button>
-          <button class="day-btn" onclick="toggleDay('cycling',1)">M</button>
-          <button class="day-btn" onclick="toggleDay('cycling',2)">M</button>
-          <button class="day-btn" onclick="toggleDay('cycling',3)">J</button>
-          <button class="day-btn" onclick="toggleDay('cycling',4)">V</button>
-          <button class="day-btn" onclick="toggleDay('cycling',5)">S</button>
-          <button class="day-btn" onclick="toggleDay('cycling',6)">D</button>
-        </div>
-      </div>
 
-      <div class="sport-block">
-        <div class="sport-row">
-          <span class="sport-lbl">🏋️ Gimnasio</span>
-          <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="gymDays" oninput="sv('gymDays','gvd')"><span class="sval" id="gvd">2</span><span class="sunit">días</span></div>
-          <input type="number" id="gymMaxMinutes" value="60" min="20" max="120" placeholder="min">
-        </div>
-        <div class="day-picker" id="dp-gym">
-          <button class="day-btn" onclick="toggleDay('gym',0)">L</button>
-          <button class="day-btn" onclick="toggleDay('gym',1)">M</button>
-          <button class="day-btn" onclick="toggleDay('gym',2)">M</button>
-          <button class="day-btn" onclick="toggleDay('gym',3)">J</button>
-          <button class="day-btn" onclick="toggleDay('gym',4)">V</button>
-          <button class="day-btn" onclick="toggleDay('gym',5)">S</button>
-          <button class="day-btn" onclick="toggleDay('gym',6)">D</button>
-        </div>
-      </div>
-
-      <div class="field" style="margin-top:10px">
-        <label>Días inamovibles sin entrenamiento</label>
-        <input type="text" id="restDays" placeholder='"domingo" o "ninguno"'>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">🩺 Estado físico</div>
-      <div class="check-field"><input type="checkbox" id="activeInjury" onchange="toggleInjury()"><label for="activeInjury">Tengo una lesión o dolor activo</label></div>
-      <div class="cond" id="injuryFields">
-        <div class="field" style="margin-top:10px"><label>¿Dónde y qué tipo?</label><input type="text" id="injuryDescription" placeholder="Ej: Rodilla derecha, tendinitis rotuliana"></div>
-        <div class="field"><label>Intensidad del dolor</label>
-          <div class="range-row"><input type="range" min="0" max="10" value="3" id="injuryPain" oninput="document.getElementById('ipv').textContent=this.value"><span class="rval" id="ipv">3</span><span class="rsuffix">/10</span></div>
-        </div>
-      </div>
-      <div class="field" style="margin-top:10px"><label>Lesiones en los últimos 6 meses (opcional)</label><input type="text" id="recentInjuries" placeholder="Ej: Fractura por estrés en tibia (dic 2025)"></div>
-      <div class="field" style="margin-top:12px">
-        <label>Nivel en running</label>
-        <div class="level-group" data-f="levelRunning">
-          <button type="button" class="level-btn" onclick="setLvl('levelRunning','principiante')">Principiante</button>
-          <button type="button" class="level-btn active" onclick="setLvl('levelRunning','intermedio')">Intermedio</button>
-          <button type="button" class="level-btn" onclick="setLvl('levelRunning','avanzado')">Avanzado</button>
-        </div>
-      </div>
-      <div class="field">
-        <label>Nivel en natación</label>
-        <div class="level-group" data-f="levelSwimming">
-          <button type="button" class="level-btn" onclick="setLvl('levelSwimming','principiante')">Principiante</button>
-          <button type="button" class="level-btn active" onclick="setLvl('levelSwimming','intermedio')">Intermedio</button>
-          <button type="button" class="level-btn" onclick="setLvl('levelSwimming','avanzado')">Avanzado</button>
-        </div>
-      </div>
-      <div class="field">
-        <label>Nivel en ciclismo</label>
-        <div class="level-group" data-f="levelCycling">
-          <button type="button" class="level-btn" onclick="setLvl('levelCycling','principiante')">Principiante</button>
-          <button type="button" class="level-btn active" onclick="setLvl('levelCycling','intermedio')">Intermedio</button>
-          <button type="button" class="level-btn" onclick="setLvl('levelCycling','avanzado')">Avanzado</button>
-        </div>
-      </div>
-      <div class="field" style="margin-top:10px">
-        <div class="check-field"><input type="checkbox" id="weightGoal"><label for="weightGoal">Tengo objetivo de composición corporal</label></div>
-        <div class="check-field"><input type="checkbox" id="logsAllActivities" checked><label for="logsAllActivities">Logeo todas mis actividades en Garmin</label></div>
-      </div>
-      <div class="field"><label>Disciplinas sin loguear (si aplica)</label><input type="text" id="missingDisciplines" placeholder="Ej: natación en pileta"></div>
-    </div>
-
-    <div class="card" style="border-color:rgba(249,115,22,.35)">
-      <div class="card-title" style="color:var(--accent)">📊 Check-in del día</div>
-      <div class="row2">
-        <div class="field"><label>Peso hoy (kg)</label><input type="number" id="weight" step="0.1" placeholder="72.5"></div>
-        <div class="field"><label>RPE último entrenamiento</label>
-          <div class="range-row"><input type="range" min="0" max="10" value="7" id="rpeLastSession" oninput="document.getElementById('rpev').textContent=this.value"><span class="rval" id="rpev">7</span></div>
-        </div>
-      </div>
-      <div class="row2">
-        <div class="field"><label>Soreness muscular</label>
-          <div class="range-row"><input type="range" min="0" max="10" value="3" id="muscleSoreness" oninput="document.getElementById('sorv').textContent=this.value"><span class="rval" id="sorv">3</span></div>
-        </div>
-        <div class="field"><label>Motivación hoy</label>
-          <div class="range-row"><input type="range" min="0" max="10" value="7" id="motivation" oninput="document.getElementById('motv').textContent=this.value"><span class="rval" id="motv">7</span></div>
-        </div>
-      </div>
-      <div class="row2">
-        <div class="field"><label>Calidad de sueño (anoche)</label>
-          <div class="range-row"><input type="range" min="0" max="10" value="7" id="sleepQuality" oninput="document.getElementById('slpv').textContent=this.value"><span class="rval" id="slpv">7</span></div>
-        </div>
-        <div class="field"><label>Dolor nuevo / molestia</label><input type="text" id="newPainOrIssue" placeholder="Ej: tensión en pantorrilla"></div>
       </div>
     </div>
 
-  </aside>
-
-  <!-- OUTPUT PANEL -->
-  <div class="output-panel">
-    <div class="plan-banner hidden" id="planBanner">
-      <div class="plan-dot" id="planDot"></div>
-      <span class="plan-banner-text" id="planBannerText"></span>
-    </div>
-    <nav class="tabs">
-      <button class="tab active" id="tabBtnHistory" onclick="showTab('history')">📊 Historial</button>
-      <button class="tab" id="tabBtnMacro" onclick="showTab('macro')">📋 Plan Macro</button>
-      <button class="tab" id="tabBtnPlan2w" onclick="showTab('plan2w')">🗓 Plan 2 Sem</button>
-      <button class="tab" id="tabBtnCalendar" onclick="showTab('calendar')">📅 Calendario</button>
-      <button class="tab" id="tabBtnPlanVsReal" onclick="showTab('planVsReal')">⚡ vs Real</button>
-      <button class="tab" id="tabBtnChat" onclick="showTab('chat')">💬 Chat</button>
-    </nav>
-
-    <!-- Historial -->
-    <div class="tab-content active" id="tabHistory">
-      <div class="status-bar hidden" id="statusHistory"><div class="spinner"></div><span id="statusHistoryMsg">Analizando...</span></div>
-      <div class="chart-row hidden" id="historyCharts">
-        <div class="chart-wrap"><canvas id="chartVolume"></canvas></div>
-        <div class="chart-wrap"><canvas id="chartDiscipline"></canvas></div>
+    <!-- ── HISTORIAL ── -->
+    <div class="screen" id="screenHistorial">
+      <div class="screen-action">
+        <button class="btn btn-primary btn-full" id="btnHistorialAction" onclick="analyzeHistory()">📊 Analizar Historial Garmin</button>
       </div>
-      <div id="historyContent"><div class="empty"><div class="ico">📊</div><p>Hacé clic en <strong>Analizar historial Garmin</strong> para obtener un diagnóstico profundo de tu entrenamiento.</p></div></div>
-    </div>
-
-    <!-- Plan Macro -->
-    <div class="tab-content" id="tabMacro">
-      <div class="status-bar hidden" id="statusMacro"><div class="spinner"></div><span id="statusMacroMsg">Generando...</span></div>
-      <div class="chart-row single hidden" id="macroCharts">
-        <div class="chart-wrap"><canvas id="chartMacro"></canvas></div>
-      </div>
-      <div id="macroContent"><div class="empty"><div class="ico">📋</div><p>Hacé clic en <strong>Generar Plan Macro</strong> para obtener la periodización completa hasta tu evento.</p></div></div>
-    </div>
-
-    <!-- Plan 2 Semanas -->
-    <div class="tab-content" id="tabPlan2w">
-      <div class="status-bar hidden" id="statusPlan2w"><div class="spinner"></div><span id="statusPlan2wMsg">Generando...</span></div>
-      <div id="plan2wContent"><div class="empty"><div class="ico">🗓</div><p>Hacé clic en <strong>Generar Plan 2 Semanas →</strong> para obtener tu plan detallado.</p></div></div>
-    </div>
-
-    <!-- Calendario -->
-    <div class="tab-content" id="tabCalendar">
-      <div id="calendarContent">
-        <div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de generar el plan.</span></div>
+      <div class="screen-body">
+        <div class="status-bar hidden" id="statusHistory"><div class="spinner"></div><span id="statusHistoryMsg">Analizando...</span></div>
+        <div class="chart-row hidden" id="historyCharts">
+          <div class="chart-wrap"><canvas id="chartVolume"></canvas></div>
+          <div class="chart-wrap"><canvas id="chartDiscipline"></canvas></div>
+        </div>
+        <div id="historyContent"><div class="empty"><div class="ico">📊</div><p>Analizá tu historial de entrenamiento de los últimos 4 años con IA.</p></div></div>
       </div>
     </div>
 
-    <!-- Plan vs Real -->
-    <div class="tab-content" id="tabPlanVsReal">
-      <div class="status-bar hidden" id="statusPlanVsReal"><div class="spinner"></div><span id="statusPlanVsRealMsg">Cargando...</span></div>
-      <div class="chart-row single hidden" id="planVsRealCharts">
-        <div class="chart-wrap"><canvas id="chartCompliance"></canvas></div>
+    <!-- ── PLAN MACRO ── -->
+    <div class="screen" id="screenMacro">
+      <div class="screen-action">
+        <button class="btn btn-primary btn-full" id="btnMacroAction" onclick="generateMacroPlan()">📋 Generar Plan Macro</button>
       </div>
-      <div id="planVsRealContent"><div class="empty"><div class="ico">⚡</div><p>Hacé clic en <strong>Cargar Real</strong> para cruzar tus actividades Garmin con el plan.</p></div></div>
+      <div class="screen-body">
+        <div class="status-bar hidden" id="statusMacro"><div class="spinner"></div><span id="statusMacroMsg">Generando...</span></div>
+        <div class="chart-row single hidden" id="macroCharts">
+          <div class="chart-wrap"><canvas id="chartMacro"></canvas></div>
+        </div>
+        <div id="macroContent"><div class="empty"><div class="ico">📋</div><p>Obtené la periodización completa hasta tu evento objetivo.</p></div></div>
+      </div>
     </div>
 
-    <!-- Chat -->
-    <div class="tab-content" id="tabChat">
-      <div class="chat-plan-banner hidden" id="chatPlanBanner" onclick="showTab('calendar')">
+    <!-- ── PLAN 2 SEMANAS ── -->
+    <div class="screen" id="screenPlan2w">
+      <div class="screen-body">
+        <div class="status-bar hidden" id="statusPlan2w"><div class="spinner"></div><span id="statusPlan2wMsg">Generando...</span></div>
+        <div id="plan2wContent"><div class="empty"><div class="ico">🗓</div><p>Generá el plan desde <strong>Objetivos</strong> para ver tu planificación detallada.</p></div></div>
+      </div>
+    </div>
+
+    <!-- ── CALENDARIO ── -->
+    <div class="screen" id="screenCalendar">
+      <div class="screen-body">
+        <div id="calendarContent">
+          <div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de generar el plan.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VS REAL ── -->
+    <div class="screen" id="screenVsReal">
+      <div class="screen-action">
+        <button class="btn btn-primary btn-full" id="btnVsRealAction" onclick="cargarReal()" disabled>🔄 Cargar actividades reales</button>
+      </div>
+      <div class="screen-body">
+        <div class="status-bar hidden" id="statusPlanVsReal"><div class="spinner"></div><span id="statusPlanVsRealMsg">Cargando...</span></div>
+        <div class="chart-row single hidden" id="planVsRealCharts">
+          <div class="chart-wrap"><canvas id="chartCompliance"></canvas></div>
+        </div>
+        <div id="planVsRealContent"><div class="empty"><div class="ico">⚡</div><p>Cruzá tus actividades reales de Garmin con el plan para ver tu adherencia.</p></div></div>
+      </div>
+    </div>
+
+    <!-- ── CHAT / SHALO ── -->
+    <div class="screen" id="screenChat">
+      <div class="chat-plan-banner hidden" id="chatPlanBanner" onclick="showScreen('Calendar')">
         <span>✅ Plan actualizado por el coach.</span>
-        <span style="margin-left:auto;font-weight:600">Ver en Calendario →</span>
+        <span style="margin-left:auto;font-weight:600">Ver Calendario →</span>
       </div>
       <div id="chatMessages">
         <div class="chat-empty" id="chatEmpty">
-          <span style="font-size:36px">💬</span>
-          <span>Hablale directamente al coach.<br>Pedí ajustes al plan, preguntá sobre intensidades,<br>nutrición o recuperación.</span>
+          <span style="font-size:44px">💬</span>
+          <strong style="font-size:16px;color:var(--text)">Coach Shalo Gazna</strong>
+          <span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span>
         </div>
       </div>
-      <div class="chat-input-area">
-        <textarea id="chatInput" rows="1" placeholder="Escribile al coach..." onkeydown="chatKeydown(event)" oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
-        <button class="btn btn-primary" id="btnChatSend" onclick="sendChatMessage()" style="flex-shrink:0;padding:8px 14px">→</button>
-      </div>
-      <div style="padding:6px 14px 8px;border-top:1px solid var(--border);background:var(--surface);text-align:right;flex-shrink:0">
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="clearChat()">🗑 Limpiar chat</button>
+      <div class="chat-input-wrap">
+        <div class="chat-input-area">
+          <textarea id="chatInput" rows="1" placeholder="Escribile al coach..." onkeydown="chatKeydown(event)" oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
+          <button class="chat-send-btn" id="btnChatSend" onclick="sendChatMessage()">→</button>
+        </div>
+        <div class="chat-actions">
+          <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;min-height:36px" onclick="clearChat()">🗑 Limpiar chat</button>
+        </div>
       </div>
     </div>
-  </div>
 
-</div>
+  </div><!-- /screen-wrap -->
+
+  <!-- BOTTOM NAV -->
+  <nav class="nav-bar">
+    <button class="nav-item active" id="navObjetivos" onclick="showScreen('Objetivos')">
+      <span class="nav-icon">🎯</span><span>Metas</span>
+      <div class="nav-dot" id="dotObjetivos"></div>
+    </button>
+    <button class="nav-item" id="navHistorial" onclick="showScreen('Historial')">
+      <span class="nav-icon">📊</span><span>Historial</span>
+      <div class="nav-dot" id="dotHistorial"></div>
+    </button>
+    <button class="nav-item" id="navMacro" onclick="showScreen('Macro')">
+      <span class="nav-icon">📋</span><span>Macro</span>
+      <div class="nav-dot" id="dotMacro"></div>
+    </button>
+    <button class="nav-item" id="navPlan2w" onclick="showScreen('Plan2w')">
+      <span class="nav-icon">🗓</span><span>Plan</span>
+      <div class="nav-dot" id="dotPlan2w"></div>
+    </button>
+    <button class="nav-item" id="navCalendar" onclick="showScreen('Calendar')">
+      <span class="nav-icon">📅</span><span>Cal.</span>
+      <div class="nav-dot" id="dotCalendar"></div>
+    </button>
+    <button class="nav-item" id="navVsReal" onclick="showScreen('VsReal')">
+      <span class="nav-icon">⚡</span><span>vs Real</span>
+      <div class="nav-dot" id="dotVsReal"></div>
+    </button>
+    <button class="nav-item" id="navChat" onclick="showScreen('Chat')">
+      <span class="nav-icon">💬</span><span>Shalo</span>
+      <div class="nav-dot" id="dotChat"></div>
+    </button>
+  </nav>
+
+</div><!-- /app -->
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-// ── State ─────────────────────────────────────────────────────
+// ── State ──────────────────────────────────────────────────────
 let priority = 'A';
 const levels = { levelRunning:'intermedio', levelSwimming:'intermedio', levelCycling:'intermedio' };
 const availableDays = { running:[], swimming:[], cycling:[], gym:[] };
 const allSessions = [];
 let sessionToken = localStorage.getItem('sessionToken') ?? null;
 
-// ── API fetch wrapper (inyecta token en todos los requests) ────
+// ── API fetch ──────────────────────────────────────────────────
 function apiFetch(url, options = {}) {
   const headers = { ...(options.headers ?? {}) };
   if (sessionToken) headers['X-Session-Token'] = sessionToken;
   return fetch(url, { ...options, headers });
+}
+
+// ── Navigation ────────────────────────────────────────────────
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const screen = document.getElementById(`screen${name}`);
+  const nav = document.getElementById(`nav${name}`);
+  if (screen) screen.classList.add('active');
+  if (nav) nav.classList.add('active');
+}
+
+function setNavDot(name, show) {
+  const dot = document.getElementById(`dot${name}`);
+  if (dot) dot.classList.toggle('show', show);
+}
+
+// Legacy alias used in existing logic
+function showTab(name) {
+  const map = { history:'Historial', macro:'Macro', plan2w:'Plan2w', calendar:'Calendar', planVsReal:'VsReal', chat:'Chat' };
+  showScreen(map[name] ?? name);
 }
 
 // ── Auth ──────────────────────────────────────────────────────
@@ -605,7 +690,7 @@ async function checkSession() {
     return;
   }
   document.getElementById('loginOverlay').classList.add('hidden');
-  if (r.email) document.getElementById('btnAccount').textContent = `⚙ ${r.email}`;
+  if (r.email) document.getElementById('btnAccount').textContent = `⚙ ${r.email.split('@')[0]}`;
   await checkHistory();
   await refreshPlanStatus();
   await restoreSavedPlan();
@@ -616,48 +701,38 @@ async function checkSession() {
 }
 
 function clearAllContent() {
-  // Tabs text content
   document.getElementById('historyContent').className = '';
-  document.getElementById('historyContent').innerHTML = '<div class="empty"><div class="ico">📊</div><p>Hacé clic en <strong>📊 Historial</strong> para obtener un diagnóstico profundo de tu entrenamiento.</p></div>';
+  document.getElementById('historyContent').innerHTML = '<div class="empty"><div class="ico">📊</div><p>Analizá tu historial de entrenamiento de los últimos 4 años con IA.</p></div>';
   document.getElementById('historyCharts').classList.add('hidden');
 
   document.getElementById('macroContent').className = '';
-  document.getElementById('macroContent').innerHTML = '<div class="empty"><div class="ico">📋</div><p>Hacé clic en <strong>📋 Plan Macro</strong> para obtener la periodización completa hasta tu evento.</p></div>';
+  document.getElementById('macroContent').innerHTML = '<div class="empty"><div class="ico">📋</div><p>Obtené la periodización completa hasta tu evento objetivo.</p></div>';
   document.getElementById('macroCharts').classList.add('hidden');
 
   document.getElementById('plan2wContent').className = '';
-  document.getElementById('plan2wContent').innerHTML = '<div class="empty"><div class="ico">🗓</div><p>Hacé clic en <strong>🗓 Plan 2 Sem →</strong> para obtener tu plan detallado.</p></div>';
+  document.getElementById('plan2wContent').innerHTML = '<div class="empty"><div class="ico">🗓</div><p>Generá el plan desde <strong>Objetivos</strong> para ver tu planificación detallada.</p></div>';
 
   document.getElementById('calendarContent').innerHTML = '<div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de generar el plan.</span></div>';
 
   document.getElementById('planVsRealContent').className = '';
-  document.getElementById('planVsRealContent').innerHTML = '<div class="empty"><div class="ico">⚡</div><p>Hacé clic en <strong>🔄 Cargar Real</strong> para cruzar tus actividades Garmin con el plan.</p></div>';
+  document.getElementById('planVsRealContent').innerHTML = '<div class="empty"><div class="ico">⚡</div><p>Cruzá tus actividades reales de Garmin con el plan.</p></div>';
   document.getElementById('planVsRealCharts').classList.add('hidden');
 
-  // Chat
   chatHistory = [];
   chatStreaming = false;
-  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:36px">💬</span><span>Hablale directamente al coach.<br>Pedí ajustes al plan, preguntá sobre intensidades,<br>nutrición o recuperación.</span></div>';
+  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:44px">💬</span><strong style="font-size:16px;color:var(--text)">Coach Shalo Gazna</strong><span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span></div>';
   document.getElementById('chatPlanBanner').classList.add('hidden');
 
-  // Tab labels
-  document.getElementById('tabBtnHistory').textContent = '📊 Historial';
-  document.getElementById('tabBtnMacro').textContent = '📋 Plan Macro';
-  document.getElementById('tabBtnPlan2w').textContent = '🗓 Plan 2 Sem';
-  document.getElementById('tabBtnCalendar').textContent = '📅 Calendario';
-  document.getElementById('tabBtnPlanVsReal').textContent = '⚡ vs Real';
-  document.getElementById('tabBtnChat').textContent = '💬 Chat';
-
-  // Destroy charts
   ['_chartVolume','_chartDiscipline','_chartMacro','_chartCompliance'].forEach(k => {
     if (window[k]) { window[k].destroy(); window[k] = null; }
   });
 
-  // Plan banner + buttons
   document.getElementById('planBanner').classList.add('hidden');
   document.getElementById('btnCargarReal').disabled = true;
+  document.getElementById('btnVsRealAction').disabled = true;
+  ['Historial','Macro','Plan2w','Calendar','VsReal','Chat'].forEach(n => setNavDot(n, false));
   allSessions.length = 0;
-  showTab('history');
+  showScreen('Objetivos');
 }
 
 async function logout() {
@@ -673,14 +748,13 @@ async function refreshPlanStatus() {
   try {
     const s = await apiFetch('/api/plan-status').then(r => r.json());
     const hasPlan = s.plan !== null;
-    const banner = document.getElementById('planBanner');
-    const dot = document.getElementById('planDot');
-    const text = document.getElementById('planBannerText');
     document.getElementById('btnCargarReal').disabled = !hasPlan;
+    document.getElementById('btnVsRealAction').disabled = !hasPlan;
+    const banner = document.getElementById('planBanner');
     if (hasPlan) {
       banner.classList.remove('hidden');
-      dot.className = 'plan-dot review';
-      text.innerHTML = `<strong>Plan activo</strong> · desde ${s.plan.semana1.inicio} hasta ${s.planEndDate}`;
+      document.getElementById('planDot').className = 'plan-dot review';
+      document.getElementById('planBannerText').innerHTML = `<strong>Plan activo</strong> · hasta ${s.planEndDate}`;
     } else {
       banner.classList.add('hidden');
     }
@@ -699,12 +773,10 @@ async function runHistoryMapping() {
   overlay.classList.remove('hidden');
   let progress = 5;
   fill.style.width = progress + '%';
-
   const res = await apiFetch('/api/map-history', { method: 'POST' });
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = '';
-
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -715,20 +787,9 @@ async function runHistoryMapping() {
       if (!line.startsWith('data: ')) continue;
       try {
         const d = JSON.parse(line.slice(6));
-        if (d.type === 'status') {
-          msg.textContent = d.message;
-          progress = Math.min(progress + 8, 90);
-          fill.style.width = progress + '%';
-        } else if (d.type === 'done') {
-          fill.style.width = '100%';
-          msg.textContent = d.existed ? '✅ Historial ya disponible.' : '✅ Historial mapeado exitosamente.';
-          await new Promise(r => setTimeout(r, 1200));
-          overlay.classList.add('hidden');
-        } else if (d.type === 'error') {
-          msg.textContent = '⚠ ' + d.message + ' (continuando...)';
-          await new Promise(r => setTimeout(r, 2000));
-          overlay.classList.add('hidden');
-        }
+        if (d.type === 'status') { msg.textContent = d.message; progress = Math.min(progress + 8, 90); fill.style.width = progress + '%'; }
+        else if (d.type === 'done') { fill.style.width = '100%'; msg.textContent = d.existed ? '✅ Historial ya disponible.' : '✅ Historial mapeado.'; await new Promise(r => setTimeout(r, 1200)); overlay.classList.add('hidden'); }
+        else if (d.type === 'error') { msg.textContent = '⚠ ' + d.message; await new Promise(r => setTimeout(r, 2000)); overlay.classList.add('hidden'); }
       } catch {}
     }
   }
@@ -761,7 +822,7 @@ async function submitLogin() {
     sessionToken = r.token;
     localStorage.setItem('sessionToken', r.token);
     document.getElementById('loginOverlay').classList.add('hidden');
-    document.getElementById('btnAccount').textContent = `⚙ ${email}`;
+    document.getElementById('btnAccount').textContent = `⚙ ${email.split('@')[0]}`;
     clearAllContent();
     await checkHistory();
     await refreshPlanStatus();
@@ -774,16 +835,11 @@ async function submitLogin() {
     err.textContent = r.error || 'Error al iniciar sesión.';
   }
 }
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) submitLogin();
   if (e.key === 'Escape') closeModal();
 });
-
-// ── Tabs ──────────────────────────────────────────────────────
-function showTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === `tabBtn${name.charAt(0).toUpperCase()+name.slice(1)}`));
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('active', t.id === `tab${name.charAt(0).toUpperCase()+name.slice(1)}`));
-}
 
 // ── Form helpers ──────────────────────────────────────────────
 function sv(id, vid) { document.getElementById(vid).textContent = document.getElementById(id).value; }
@@ -791,19 +847,15 @@ function setPrio(v) { priority=v; document.querySelectorAll('.prio-btn').forEach
 function setLvl(f,v) { levels[f]=v; document.querySelectorAll(`[data-f="${f}"] .level-btn`).forEach(b=>b.classList.toggle('active',b.textContent.toLowerCase().trim().startsWith(v.slice(0,5)))); }
 function toggleInjury() { document.getElementById('injuryFields').classList.toggle('on', document.getElementById('activeInjury').checked); }
 
-// ── Day picker ────────────────────────────────────────────────
 function toggleDay(sport, day) {
   const idx = availableDays[sport].indexOf(day);
-  if (idx === -1) availableDays[sport].push(day);
-  else availableDays[sport].splice(idx, 1);
+  if (idx === -1) availableDays[sport].push(day); else availableDays[sport].splice(idx, 1);
   renderDayPicker(sport);
 }
 function renderDayPicker(sport) {
   const picker = document.getElementById(`dp-${sport}`);
   if (!picker) return;
-  picker.querySelectorAll('.day-btn').forEach((btn, i) => {
-    btn.classList.toggle('active', availableDays[sport].includes(i));
-  });
+  picker.querySelectorAll('.day-btn').forEach((btn, i) => btn.classList.toggle('active', availableDays[sport].includes(i)));
 }
 function setAvailableDays(sport, days) {
   availableDays[sport] = Array.isArray(days) ? [...days] : [];
@@ -890,7 +942,7 @@ function md2html(raw) {
   return s;
 }
 
-// ── JSON extraction helpers ────────────────────────────────────
+// ── JSON helpers ──────────────────────────────────────────────
 function parseJsonBlock(text, tag) {
   const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`);
   const m = text.match(re);
@@ -898,10 +950,7 @@ function parseJsonBlock(text, tag) {
   let raw = m[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
   const start = raw.indexOf('{');
   if (start > 0) raw = raw.slice(start);
-  try { return JSON.parse(raw); } catch(e) {
-    console.error(`${tag} parse error:`, e.message, raw.slice(0, 200));
-    return null;
-  }
+  try { return JSON.parse(raw); } catch(e) { return null; }
 }
 function stripJsonBlocks(text) {
   return text
@@ -912,31 +961,28 @@ function stripJsonBlocks(text) {
     .trim();
 }
 function extractPlanJson(text) { return parseJsonBlock(text, 'PLAN_JSON'); }
-function extractReviewJson(text) { return parseJsonBlock(text, 'REVIEW_JSON'); }
 
-// ── Calendar renderer ─────────────────────────────────────────
+// ── Calendar ──────────────────────────────────────────────────
 const todayStr = new Date().toISOString().split('T')[0];
 const STATUS_LABEL = { done: '✓ Realizado', partial: '~ Parcial', missed: '✗ Perdida' };
 
 function renderCalendar(plan, isReview = false) {
   const container = document.getElementById('calendarContent');
   if (!plan) {
-    container.innerHTML = '<div class="cal-empty"><span style="font-size:32px">📅</span><span>No se pudo generar el calendario. Revisá el análisis.</span></div>';
+    container.innerHTML = '<div class="cal-empty"><span style="font-size:32px">📅</span><span>No se pudo generar el calendario.</span></div>';
     return;
   }
   allSessions.length = 0;
   let html = '';
-
   if (isReview && typeof plan.adherencia === 'number') {
     const pct = plan.adherencia;
     const color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--accent)' : 'var(--red)';
-    html += `<div class="cal-adherencia"><span class="adherencia-score" style="color:${color}">${pct}%</span><div><div style="font-weight:600">Adherencia al plan</div><div class="adherencia-label">Cumplimiento de las últimas 2 semanas</div></div></div>`;
+    html += `<div class="cal-adherencia"><span class="adherencia-score" style="color:${color}">${pct}%</span><div><div style="font-weight:600;font-size:14px">Adherencia al plan</div><div class="adherencia-label">Cumplimiento 2 semanas</div></div></div>`;
   }
-
   for (const [key, week] of Object.entries(plan)) {
     if (key === 'adherencia' || key === 'savedAt') continue;
     const wNum = key === 'semana1' ? 1 : 2;
-    html += `<div class="cal-week"><div class="cal-week-title">Semana ${wNum} — desde ${week.inicio}</div><div class="cal-grid">`;
+    html += `<div class="cal-week"><div class="cal-week-title">Semana ${wNum} — ${week.inicio}</div><div class="cal-grid-wrap"><div class="cal-grid">`;
     for (const day of (week.dias || [])) {
       const isToday = day.fecha === todayStr;
       const hasSessions = !day.descanso && day.sesiones?.length > 0;
@@ -944,37 +990,33 @@ function renderCalendar(plan, isReview = false) {
       html += `<div class="cal-day-name">${(day.dia||'').slice(0,3)}</div>`;
       html += `<div class="cal-day-num">${(day.fecha||'').slice(8,10)||'?'}</div>`;
       if (day.descanso || !hasSessions) {
-        html += `<div class="cal-rest-lbl">Descanso 🛌</div>`;
+        html += `<div class="cal-rest-lbl">🛌</div>`;
       } else {
         for (const ses of day.sesiones) {
           const idx = allSessions.length;
           allSessions.push(ses);
           const statusClass = ses.status ? ` ${ses.status}` : '';
           html += `<button class="session-chip${statusClass}" onclick="openSession(${idx})">`;
-          if (ses.status) html += `<span class="chip-status ${ses.status}">${ses.status === 'done' ? '✓' : ses.status === 'partial' ? '~' : '✗'}</span>`;
+          if (ses.status) html += `<span class="chip-status ${ses.status}">${ses.status==='done'?'✓':ses.status==='partial'?'~':'✗'}</span>`;
           html += `<span class="chip-emoji">${ses.emoji||'🏃'}</span> `;
           html += `<span class="chip-title">${ses.titulo||''}</span>`;
-          html += `<span class="chip-meta">${ses.duracion||''} · RPE ${ses.rpe||'?'}${ses.score != null ? ` · ${ses.score}/10` : ''}</span>`;
+          html += `<span class="chip-meta">${ses.duracion||''} · RPE ${ses.rpe||'?'}</span>`;
           html += `</button>`;
         }
       }
       html += '</div>';
     }
-    html += '</div></div>';
+    html += '</div></div></div>';
   }
   container.innerHTML = html;
 }
 
-// ── Session detail renderer ────────────────────────────────────
+// ── Session modal ─────────────────────────────────────────────
 function esc(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function splitItems(text) {
   if (!text) return [];
-  // Already has line breaks — split on those
-  if (/\n/.test(text)) {
-    return text.split('\n').map(s => s.replace(/^[-•·\s]+/, '').trim()).filter(Boolean);
-  }
-  // Split on ", " or ". " where the next char is uppercase or digit (exercise boundary)
+  if (/\n/.test(text)) return text.split('\n').map(s => s.replace(/^[-•·\s]+/, '').trim()).filter(Boolean);
   const items = [];
   let buf = '';
   for (let i = 0; i < text.length; i++) {
@@ -982,11 +1024,7 @@ function splitItems(text) {
     const isSep = (text[i] === ',' || text[i] === '.') && text[i + 1] === ' ';
     if (isSep) {
       const next = text[i + 2];
-      if (next && /[A-ZÁÉÍÓÚÑ0-9]/.test(next)) {
-        items.push(buf.replace(/[,.]$/, '').trim());
-        buf = '';
-        i++; // skip the space
-      }
+      if (next && /[A-ZÁÉÍÓÚÑ0-9]/.test(next)) { items.push(buf.replace(/[,.]$/, '').trim()); buf = ''; i++; }
     }
   }
   if (buf.trim()) items.push(buf.trim());
@@ -995,12 +1033,8 @@ function splitItems(text) {
 
 function renderSectionBody(content) {
   const items = splitItems(content);
-  if (items.length <= 1) {
-    return `<div class="modal-section-body modal-item-single">${esc(content)}</div>`;
-  }
-  return `<div class="modal-section-body"><div class="modal-item-list">${
-    items.map(it => `<div class="modal-item">${esc(it)}</div>`).join('')
-  }</div></div>`;
+  if (items.length <= 1) return `<div class="modal-section-body modal-item-single">${esc(content)}</div>`;
+  return `<div class="modal-section-body"><div class="modal-item-list">${items.map(it=>`<div class="modal-item">${esc(it)}</div>`).join('')}</div></div>`;
 }
 
 function renderSessionDetail(text) {
@@ -1015,28 +1049,18 @@ function renderSessionDetail(text) {
     { re: /enfriamiento\s*[:\-–]/i,      icon: '🧘', label: 'Enfriamiento',     cls: 'cooldown'},
   ];
   const hits = [];
-  for (const m of MARKERS) {
-    const match = text.match(m.re);
-    if (match) hits.push({ index: match.index, len: match[0].length, icon: m.icon, label: m.label, cls: m.cls });
-  }
+  for (const m of MARKERS) { const match = text.match(m.re); if (match) hits.push({ index: match.index, len: match[0].length, ...m }); }
   hits.sort((a, b) => a.index - b.index);
-  if (hits.length === 0) {
-    return `<div class="modal-sections"><div class="modal-section notes"><div class="modal-section-hdr"><span>📋</span> Detalle</div>${renderSectionBody(text)}</div></div>`;
-  }
+  if (hits.length === 0) return `<div class="modal-sections"><div class="modal-section notes"><div class="modal-section-hdr"><span>📋</span> Detalle</div>${renderSectionBody(text)}</div></div>`;
   const parts = [];
-  if (hits[0].index > 0) {
-    const pre = text.slice(0, hits[0].index).trim();
-    if (pre) parts.push({ icon: '📋', label: 'General', cls: 'notes', content: pre });
-  }
+  if (hits[0].index > 0) { const pre = text.slice(0, hits[0].index).trim(); if (pre) parts.push({ icon:'📋', label:'General', cls:'notes', content: pre }); }
   for (let i = 0; i < hits.length; i++) {
     const start = hits[i].index + hits[i].len;
     const end = i + 1 < hits.length ? hits[i + 1].index : text.length;
     const content = text.slice(start, end).trim();
     if (content) parts.push({ icon: hits[i].icon, label: hits[i].label, cls: hits[i].cls, content });
   }
-  return '<div class="modal-sections">' + parts.map(p =>
-    `<div class="modal-section ${p.cls}"><div class="modal-section-hdr"><span>${p.icon}</span> ${p.label}</div>${renderSectionBody(p.content)}</div>`
-  ).join('') + '</div>';
+  return '<div class="modal-sections">' + parts.map(p => `<div class="modal-section ${p.cls}"><div class="modal-section-hdr"><span>${p.icon}</span> ${p.label}</div>${renderSectionBody(p.content)}</div>`).join('') + '</div>';
 }
 
 function openSession(idx) {
@@ -1047,29 +1071,16 @@ function openSession(idx) {
   document.getElementById('modalDuration').textContent = s.duracion || '';
   document.getElementById('modalIntensity').textContent = s.intensidad || '';
   document.getElementById('modalRPE').textContent = `RPE objetivo ${s.rpe || '?'}/10`;
-
   const scoreEl = document.getElementById('modalScore');
   const realEl = document.getElementById('modalRealidad');
-  const realText = document.getElementById('modalRealidadText');
-
   if (s.status && s.score != null) {
     scoreEl.style.display = '';
     const scoreColor = s.score >= 8 ? 'var(--green)' : s.score >= 5 ? 'var(--accent)' : 'var(--red)';
-    scoreEl.style.background = 'transparent';
-    scoreEl.style.color = scoreColor;
-    scoreEl.style.borderColor = scoreColor;
-    scoreEl.textContent = `${STATUS_LABEL[s.status] || s.status} · Score ${s.score}/10`;
-  } else {
-    scoreEl.style.display = 'none';
-  }
-
-  if (s.actividad_real) {
-    realEl.style.display = '';
-    realText.textContent = s.actividad_real;
-  } else {
-    realEl.style.display = 'none';
-  }
-
+    scoreEl.style.background = 'transparent'; scoreEl.style.color = scoreColor; scoreEl.style.borderColor = scoreColor;
+    scoreEl.textContent = `${STATUS_LABEL[s.status]||s.status} · Score ${s.score}/10`;
+  } else { scoreEl.style.display = 'none'; }
+  if (s.actividad_real) { realEl.style.display = ''; document.getElementById('modalRealidadText').textContent = s.actividad_real; }
+  else { realEl.style.display = 'none'; }
   document.getElementById('modalDetail').innerHTML = renderSessionDetail(s.detalle || '');
   document.getElementById('sessionModal').classList.remove('hidden');
 }
@@ -1085,8 +1096,7 @@ async function restoreSavedPlan() {
     if (!plan?.semana1) return;
     const isReview = plan.semana1?.dias?.some(d => d.sesiones?.some(s => s.status));
     renderCalendar(plan, isReview);
-    const label = isReview ? '📅 Plan vs Real ✓' : '📅 Calendario ✓';
-    document.getElementById('tabBtnCalendar').textContent = label;
+    setNavDot('Calendar', true);
   } catch {}
 }
 
@@ -1101,26 +1111,21 @@ async function restoreChatHistory() {
     for (const msg of history) {
       const bubble = document.createElement('div');
       bubble.className = `chat-bubble ${msg.role}`;
-      if (msg.role === 'assistant') {
-        bubble.innerHTML = md2html(stripJsonBlocks(msg.content));
-      } else {
-        bubble.textContent = msg.content;
-      }
+      if (msg.role === 'assistant') bubble.innerHTML = md2html(stripJsonBlocks(msg.content));
+      else bubble.textContent = msg.content;
       msgs.appendChild(bubble);
     }
-    const exchanges = Math.floor(history.length / 2);
-    if (exchanges > 0) document.getElementById('tabBtnChat').textContent = `💬 Chat (${exchanges})`;
+    setNavDot('Chat', true);
   } catch {}
 }
 
 function clearChat() {
-  chatHistory = [];
-  chatStreaming = false;
-  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:36px">💬</span><span>Hablale directamente al coach.<br>Pedí ajustes al plan, preguntá sobre intensidades,<br>nutrición o recuperación.</span></div>';
+  chatHistory = []; chatStreaming = false;
+  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:44px">💬</span><strong style="font-size:16px;color:var(--text)">Coach Shalo Gazna</strong><span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span></div>';
   document.getElementById('chatPlanBanner').classList.add('hidden');
-  document.getElementById('tabBtnChat').textContent = '💬 Chat';
   document.getElementById('btnChatSend').disabled = false;
   document.getElementById('chatInput').disabled = false;
+  setNavDot('Chat', false);
   apiFetch('/api/chat-history', { method: 'DELETE' }).catch(() => {});
 }
 
@@ -1133,141 +1138,84 @@ async function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const text = input.value.trim();
   if (!text) return;
-
   const empty = document.getElementById('chatEmpty');
   if (empty) empty.remove();
-
-  input.value = '';
-  input.style.height = '';
-
+  input.value = ''; input.style.height = '';
   const msgs = document.getElementById('chatMessages');
   const userBubble = document.createElement('div');
   userBubble.className = 'chat-bubble user';
   userBubble.textContent = text;
   msgs.appendChild(userBubble);
   msgs.scrollTop = msgs.scrollHeight;
-
   chatHistory.push({ role: 'user', content: text });
-
   const asBubble = document.createElement('div');
   asBubble.className = 'chat-bubble assistant is-streaming';
   msgs.appendChild(asBubble);
   msgs.scrollTop = msgs.scrollHeight;
-
   chatStreaming = true;
   document.getElementById('btnChatSend').disabled = true;
   input.disabled = true;
-
   const { profile, checkin } = collectData();
   let fullText = '';
-
   try {
-    const res = await apiFetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: chatHistory, profile, checkin }),
-    });
+    const res = await apiFetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: chatHistory, profile, checkin }) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const { done, value } = await reader.read(); if (done) break;
       buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
+      const lines = buf.split('\n'); buf = lines.pop() ?? '';
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         try {
           const d = JSON.parse(line.slice(6));
-          if (d.type === 'text') {
-            fullText += d.content;
-            asBubble.textContent = fullText;
-            msgs.scrollTop = msgs.scrollHeight;
-          } else if (d.type === 'plan_update') {
-            renderCalendar(d.plan, false);
-            document.getElementById('tabBtnCalendar').textContent = '📅 Calendario ✓';
-            document.getElementById('tabBtnChat').textContent = '💬 Chat ✅';
+          if (d.type === 'text') { fullText += d.content; asBubble.textContent = fullText; msgs.scrollTop = msgs.scrollHeight; }
+          else if (d.type === 'plan_update') {
+            renderCalendar(d.plan, false); setNavDot('Calendar', true);
             const banner = document.getElementById('chatPlanBanner');
-            banner.classList.remove('hidden');
-            setTimeout(() => banner.classList.add('hidden'), 7000);
-          } else if (d.type === 'done') {
-            asBubble.className = 'chat-bubble assistant';
-            asBubble.innerHTML = md2html(stripJsonBlocks(fullText));
-            msgs.scrollTop = msgs.scrollHeight;
-            chatHistory.push({ role: 'assistant', content: fullText });
-          } else if (d.type === 'error') {
-            asBubble.className = 'chat-bubble assistant';
-            asBubble.innerHTML = `<span style="color:var(--red)">❌ ${d.message}</span>`;
-            chatHistory.pop();
+            banner.classList.remove('hidden'); setTimeout(() => banner.classList.add('hidden'), 7000);
           }
+          else if (d.type === 'done') { asBubble.className = 'chat-bubble assistant'; asBubble.innerHTML = md2html(stripJsonBlocks(fullText)); msgs.scrollTop = msgs.scrollHeight; chatHistory.push({ role: 'assistant', content: fullText }); setNavDot('Chat', true); }
+          else if (d.type === 'error') { asBubble.className = 'chat-bubble assistant'; asBubble.innerHTML = `<span style="color:var(--red)">❌ ${d.message}</span>`; chatHistory.pop(); }
         } catch {}
       }
     }
   } catch (e) {
     asBubble.className = 'chat-bubble assistant';
-    asBubble.innerHTML = `<span style="color:var(--red)">❌ Error de conexión: ${e.message}</span>`;
+    asBubble.innerHTML = `<span style="color:var(--red)">❌ ${e.message}</span>`;
     chatHistory.pop();
   }
-
   chatStreaming = false;
   document.getElementById('btnChatSend').disabled = false;
   input.disabled = false;
   input.focus();
 }
 
-// ── Charts ────────────────────────────────────────────────
+// ── Charts ────────────────────────────────────────────────────
 function renderHistoryCharts(chartData) {
   if (!chartData) return;
   document.getElementById('historyCharts').classList.remove('hidden');
   if (window._chartVolume) { window._chartVolume.destroy(); window._chartVolume = null; }
   if (window._chartDiscipline) { window._chartDiscipline.destroy(); window._chartDiscipline = null; }
-
   const weeks = chartData.weeklyVolumes || [];
   const labels = weeks.map(w => String(w.week).replace(/^\d{4}-?/, ''));
   const ctxV = document.getElementById('chartVolume').getContext('2d');
   window._chartVolume = new Chart(ctxV, {
     type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Running', data: weeks.map(w => w.running || 0), backgroundColor: '#f97316', stack: 'a' },
-        { label: 'Ciclismo', data: weeks.map(w => w.cycling || 0), backgroundColor: '#3fb950', stack: 'a' },
-        { label: 'Natación', data: weeks.map(w => w.swimming || 0), backgroundColor: '#79c0ff', stack: 'a' },
-        { label: 'Gym', data: weeks.map(w => w.gym || 0), backgroundColor: '#8b949e', stack: 'a' },
-      ],
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { labels: { color: '#e6edf3', font: { size: 10 } } },
-        title: { display: true, text: 'Volumen semanal (min)', color: '#e6edf3', font: { size: 12 } },
-      },
-      scales: {
-        x: { stacked: true, ticks: { color: '#8b949e', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#30363d' } },
-        y: { stacked: true, ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d' } },
-      },
-    },
+    data: { labels, datasets: [
+      { label: 'Running', data: weeks.map(w => w.running||0), backgroundColor: '#f97316', stack: 'a' },
+      { label: 'Ciclismo', data: weeks.map(w => w.cycling||0), backgroundColor: '#3fb950', stack: 'a' },
+      { label: 'Natación', data: weeks.map(w => w.swimming||0), backgroundColor: '#79c0ff', stack: 'a' },
+      { label: 'Gym', data: weeks.map(w => w.gym||0), backgroundColor: '#8b949e', stack: 'a' },
+    ]},
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e6edf3', font: { size: 10 } } }, title: { display: true, text: 'Volumen semanal (min)', color: '#e6edf3', font: { size: 11 } } }, scales: { x: { stacked: true, ticks: { color: '#8b949e', font: { size: 8 }, maxRotation: 45 }, grid: { color: '#30363d' } }, y: { stacked: true, ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#30363d' } } } },
   });
-
   const disc = chartData.disciplineMinutes || {};
   const ctxD = document.getElementById('chartDiscipline').getContext('2d');
   window._chartDiscipline = new Chart(ctxD, {
     type: 'doughnut',
-    data: {
-      labels: ['Running', 'Ciclismo', 'Natación', 'Gym'],
-      datasets: [{ data: [disc.running || 0, disc.cycling || 0, disc.swimming || 0, disc.gym || 0], backgroundColor: ['#f97316', '#3fb950', '#79c0ff', '#8b949e'], borderWidth: 1, borderColor: '#21262d' }],
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'bottom', labels: { color: '#e6edf3', font: { size: 11 }, padding: 8 } },
-        title: { display: true, text: 'Distribución por disciplina', color: '#e6edf3', font: { size: 12 } },
-      },
-    },
+    data: { labels: ['Running','Ciclismo','Natación','Gym'], datasets: [{ data: [disc.running||0,disc.cycling||0,disc.swimming||0,disc.gym||0], backgroundColor: ['#f97316','#3fb950','#79c0ff','#8b949e'], borderWidth: 1, borderColor: '#21262d' }] },
+    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#e6edf3', font: { size: 10 }, padding: 6 } }, title: { display: true, text: 'Distribución por disciplina', color: '#e6edf3', font: { size: 11 } } } },
   });
 }
 
@@ -1279,77 +1227,40 @@ function renderMacroChart(macroData) {
   const ctx = document.getElementById('chartMacro').getContext('2d');
   window._chartMacro = new Chart(ctx, {
     type: 'bar',
-    data: {
-      labels: phases.map(p => p.name),
-      datasets: [{ label: 'Semanas', data: phases.map(p => p.weeks || 0), backgroundColor: phases.map(p => p.color || '#f97316') }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        title: { display: true, text: `Periodización → ${macroData.eventDate || '?'} (${macroData.totalWeeks || '?'} sem)`, color: '#e6edf3', font: { size: 12 } },
-        tooltip: { callbacks: { label: ctx => `${ctx.raw} semanas — ${phases[ctx.dataIndex]?.focus || ''}` } },
-      },
-      scales: {
-        x: { ticks: { color: '#8b949e', callback: v => v + ' sem' }, grid: { color: '#30363d' } },
-        y: { ticks: { color: '#e6edf3', font: { size: 12 } }, grid: { color: '#30363d' } },
-      },
-    },
+    data: { labels: phases.map(p => p.name), datasets: [{ label: 'Semanas', data: phases.map(p => p.weeks||0), backgroundColor: phases.map(p => p.color||'#f97316') }] },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false }, title: { display: true, text: `Periodización → ${macroData.eventDate||'?'} (${macroData.totalWeeks||'?'} sem)`, color: '#e6edf3', font: { size: 11 } }, tooltip: { callbacks: { label: ctx => `${ctx.raw} semanas — ${phases[ctx.dataIndex]?.focus||''}` } } }, scales: { x: { ticks: { color: '#8b949e', callback: v => v + ' sem' }, grid: { color: '#30363d' } }, y: { ticks: { color: '#e6edf3', font: { size: 11 } }, grid: { color: '#30363d' } } } },
   });
 }
 
 function renderComplianceChart(reviewPlan) {
   if (!reviewPlan) return;
   const sessions = [];
-  for (const key of ['semana1', 'semana2']) {
-    const week = reviewPlan[key];
-    if (!week?.dias) continue;
-    for (const day of week.dias) {
-      for (const ses of (day.sesiones || [])) {
-        if (ses.score != null) {
-          sessions.push({ label: `${(day.dia || '').slice(0, 3)} ${(day.fecha || '').slice(5)}: ${ses.titulo || ses.deporte || ''}`, score: ses.score, status: ses.status });
-        }
-      }
-    }
+  for (const key of ['semana1','semana2']) {
+    const week = reviewPlan[key]; if (!week?.dias) continue;
+    for (const day of week.dias) for (const ses of (day.sesiones||[])) if (ses.score != null) sessions.push({ label: `${(day.dia||'').slice(0,3)} ${(day.fecha||'').slice(5)}: ${ses.titulo||ses.deporte||''}`, score: ses.score, status: ses.status });
   }
   if (!sessions.length) return;
   document.getElementById('planVsRealCharts').classList.remove('hidden');
   if (window._chartCompliance) { window._chartCompliance.destroy(); window._chartCompliance = null; }
-  const colors = sessions.map(s => s.status === 'done' ? '#3fb950' : s.status === 'partial' ? '#f97316' : '#f85149');
+  const colors = sessions.map(s => s.status==='done'?'#3fb950':s.status==='partial'?'#f97316':'#f85149');
   const ctx = document.getElementById('chartCompliance').getContext('2d');
   window._chartCompliance = new Chart(ctx, {
     type: 'bar',
-    data: {
-      labels: sessions.map(s => s.label),
-      datasets: [{ label: 'Score', data: sessions.map(s => s.score), backgroundColor: colors }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        title: { display: true, text: 'Score por sesión (0–10)', color: '#e6edf3', font: { size: 12 } },
-      },
-      scales: {
-        x: { min: 0, max: 10, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
-        y: { ticks: { color: '#e6edf3', font: { size: 10 } }, grid: { color: '#30363d' } },
-      },
-    },
+    data: { labels: sessions.map(s => s.label), datasets: [{ label: 'Score', data: sessions.map(s => s.score), backgroundColor: colors }] },
+    options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false }, title: { display: true, text: 'Score por sesión (0–10)', color: '#e6edf3', font: { size: 11 } } }, scales: { x: { min: 0, max: 10, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } }, y: { ticks: { color: '#e6edf3', font: { size: 10 } }, grid: { color: '#30363d' } } } },
   });
 }
 
-// ── Restore tabs on login ─────────────────────────────────────
+// ── Restore on login ──────────────────────────────────────────
 async function restoreHistoricalAnalysis() {
   try {
     const { text } = await apiFetch('/api/historical-analysis').then(r => r.json());
     if (!text) return;
     const chartData = parseJsonBlock(text, 'CHART_JSON');
     const el = document.getElementById('historyContent');
-    el.className = 'output';
-    el.innerHTML = md2html(stripJsonBlocks(text));
+    el.className = 'output'; el.innerHTML = md2html(stripJsonBlocks(text));
     if (chartData) renderHistoryCharts(chartData);
-    document.getElementById('tabBtnHistory').textContent = '📊 Historial ✓';
+    setNavDot('Historial', true);
   } catch {}
 }
 
@@ -1359,10 +1270,9 @@ async function restoreMacroPlan() {
     if (!text) return;
     const macroData = parseJsonBlock(text, 'MACRO_JSON');
     const el = document.getElementById('macroContent');
-    el.className = 'output';
-    el.innerHTML = md2html(stripJsonBlocks(text));
+    el.className = 'output'; el.innerHTML = md2html(stripJsonBlocks(text));
     if (macroData) renderMacroChart(macroData);
-    document.getElementById('tabBtnMacro').textContent = '📋 Plan Macro ✓';
+    setNavDot('Macro', true);
   } catch {}
 }
 
@@ -1371,27 +1281,22 @@ async function restorePlanVsReal() {
     const { text } = await apiFetch('/api/plan-vs-real-text').then(r => r.json());
     if (!text) return;
     const el = document.getElementById('planVsRealContent');
-    el.className = 'output';
-    el.innerHTML = md2html(stripJsonBlocks(text));
+    el.className = 'output'; el.innerHTML = md2html(stripJsonBlocks(text));
     const plan = await apiFetch('/api/saved-plan').then(r => r.json());
     if (plan?.semana1) renderComplianceChart(plan);
-    document.getElementById('tabBtnPlanVsReal').textContent = '⚡ vs Real ✓';
+    setNavDot('VsReal', true);
   } catch {}
 }
 
-// ── SSE stream helper ──────────────────────────────────────────
+// ── SSE helper ────────────────────────────────────────────────
 async function streamSSE(url, body, { onStatus, onText, onDone, onError, onPlanUpdate } = {}) {
   const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
   while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    const { done, value } = await reader.read(); if (done) break;
     buf += dec.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop() ?? '';
+    const lines = buf.split('\n'); buf = lines.pop() ?? '';
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue;
       try {
@@ -1408,18 +1313,15 @@ async function streamSSE(url, body, { onStatus, onText, onDone, onError, onPlanU
 
 // ── analyzeHistory ────────────────────────────────────────────
 async function analyzeHistory() {
-  const btn = document.getElementById('btnHistory');
   const statusBar = document.getElementById('statusHistory');
   const statusMsg = document.getElementById('statusHistoryMsg');
   const out = document.getElementById('historyContent');
-  btn.disabled = true;
+  [document.getElementById('btnHistory'), document.getElementById('btnHistorialAction')].forEach(b => { if(b) b.disabled = true; });
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Iniciando...';
-  out.className = 'streaming';
-  out.textContent = '';
+  out.className = 'streaming'; out.textContent = '';
   document.getElementById('historyCharts').classList.add('hidden');
-  showTab('history');
-
+  showScreen('Historial');
   const { profile } = collectData();
   let fullText = '';
   try {
@@ -1428,34 +1330,28 @@ async function analyzeHistory() {
       onText: t => { fullText += t; out.textContent = fullText; },
       onDone: () => {
         const chartData = parseJsonBlock(fullText, 'CHART_JSON');
-        out.className = 'output';
-        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        out.className = 'output'; out.innerHTML = md2html(stripJsonBlocks(fullText));
         statusBar.classList.add('hidden');
         if (chartData) renderHistoryCharts(chartData);
-        document.getElementById('tabBtnHistory').textContent = '📊 Historial ✓';
+        setNavDot('Historial', true);
       },
       onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
     });
-  } catch (e) {
-    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
-  }
-  btn.disabled = false;
+  } catch (e) { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${e.message}</div>`; statusBar.classList.add('hidden'); }
+  [document.getElementById('btnHistory'), document.getElementById('btnHistorialAction')].forEach(b => { if(b) b.disabled = false; });
 }
 
 // ── generateMacroPlan ─────────────────────────────────────────
 async function generateMacroPlan() {
-  const btn = document.getElementById('btnMacro');
   const statusBar = document.getElementById('statusMacro');
   const statusMsg = document.getElementById('statusMacroMsg');
   const out = document.getElementById('macroContent');
-  btn.disabled = true;
+  [document.getElementById('btnMacro'), document.getElementById('btnMacroAction')].forEach(b => { if(b) b.disabled = true; });
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Iniciando...';
-  out.className = 'streaming';
-  out.textContent = '';
+  out.className = 'streaming'; out.textContent = '';
   document.getElementById('macroCharts').classList.add('hidden');
-  showTab('macro');
-
+  showScreen('Macro');
   const { profile } = collectData();
   let fullText = '';
   try {
@@ -1464,36 +1360,29 @@ async function generateMacroPlan() {
       onText: t => { fullText += t; out.textContent = fullText; },
       onDone: () => {
         const macroData = parseJsonBlock(fullText, 'MACRO_JSON');
-        out.className = 'output';
-        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        out.className = 'output'; out.innerHTML = md2html(stripJsonBlocks(fullText));
         statusBar.classList.add('hidden');
         if (macroData) renderMacroChart(macroData);
-        document.getElementById('tabBtnMacro').textContent = '📋 Plan Macro ✓';
+        setNavDot('Macro', true);
       },
       onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
     });
-  } catch (e) {
-    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
-  }
-  btn.disabled = false;
+  } catch (e) { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${e.message}</div>`; statusBar.classList.add('hidden'); }
+  [document.getElementById('btnMacro'), document.getElementById('btnMacroAction')].forEach(b => { if(b) b.disabled = false; });
 }
 
-// ── generatePlan2w (was analyze) ─────────────────────────────
+// ── generatePlan2w ────────────────────────────────────────────
 async function generatePlan2w() {
-  const btn = document.getElementById('btnAnalyze');
   const statusBar = document.getElementById('statusPlan2w');
   const statusMsg = document.getElementById('statusPlan2wMsg');
   const out = document.getElementById('plan2wContent');
-  btn.disabled = true;
+  document.getElementById('btnAnalyze').disabled = true;
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Iniciando...';
-  out.className = 'streaming';
-  out.textContent = '';
-  showTab('plan2w');
-
+  out.className = 'streaming'; out.textContent = '';
+  showScreen('Plan2w');
   await apiFetch('/api/plan', { method: 'DELETE' }).catch(() => {});
   await refreshPlanStatus();
-
   const { profile, checkin } = collectData();
   let fullText = '';
   try {
@@ -1502,40 +1391,34 @@ async function generatePlan2w() {
       onText: t => { fullText += t; out.textContent = fullText; },
       onDone: async () => {
         const planJson = extractPlanJson(fullText);
-        out.className = 'output';
-        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        out.className = 'output'; out.innerHTML = md2html(stripJsonBlocks(fullText));
         statusBar.classList.add('hidden');
         renderCalendar(planJson, false);
-        document.getElementById('tabBtnCalendar').textContent = planJson ? '📅 Calendario ✓' : '📅 Calendario ⚠';
-        document.getElementById('tabBtnPlan2w').textContent = '🗓 Plan 2 Sem ✓';
+        setNavDot('Plan2w', true);
+        setNavDot('Calendar', !!planJson);
         if (planJson) {
           await apiFetch('/api/save-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(planJson) }).catch(() => {});
           await refreshPlanStatus();
-          showTab('calendar');
+          showScreen('Calendar');
         }
       },
       onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
     });
-  } catch (e) {
-    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
-  }
-  btn.disabled = false;
+  } catch (e) { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${e.message}</div>`; statusBar.classList.add('hidden'); }
+  document.getElementById('btnAnalyze').disabled = false;
 }
 
-// ── cargarReal (was update) ───────────────────────────────────
+// ── cargarReal ────────────────────────────────────────────────
 async function cargarReal() {
-  const btn = document.getElementById('btnCargarReal');
   const statusBar = document.getElementById('statusPlanVsReal');
   const statusMsg = document.getElementById('statusPlanVsRealMsg');
   const out = document.getElementById('planVsRealContent');
-  btn.disabled = true;
+  [document.getElementById('btnCargarReal'), document.getElementById('btnVsRealAction')].forEach(b => { if(b) b.disabled = true; });
   statusBar.classList.remove('hidden');
   statusMsg.textContent = 'Cargando actividades...';
-  out.className = 'streaming';
-  out.textContent = '';
+  out.className = 'streaming'; out.textContent = '';
   document.getElementById('planVsRealCharts').classList.add('hidden');
-  showTab('planVsReal');
-
+  showScreen('VsReal');
   const { profile, checkin } = collectData();
   let fullText = '';
   let reviewPlan = null;
@@ -1543,25 +1426,18 @@ async function cargarReal() {
     await streamSSE('/api/review', { profile, checkin }, {
       onStatus: m => { statusMsg.textContent = m; },
       onText: t => { fullText += t; out.textContent = fullText; },
-      onPlanUpdate: plan => {
-        reviewPlan = plan;
-        renderCalendar(plan, true);
-        document.getElementById('tabBtnCalendar').textContent = '📅 Calendario ✓';
-      },
+      onPlanUpdate: plan => { reviewPlan = plan; renderCalendar(plan, true); setNavDot('Calendar', true); },
       onDone: async () => {
-        out.className = 'output';
-        out.innerHTML = md2html(stripJsonBlocks(fullText));
+        out.className = 'output'; out.innerHTML = md2html(stripJsonBlocks(fullText));
         statusBar.classList.add('hidden');
         if (reviewPlan) renderComplianceChart(reviewPlan);
-        document.getElementById('tabBtnPlanVsReal').textContent = '⚡ vs Real ✓';
+        setNavDot('VsReal', true);
         await refreshPlanStatus();
       },
       onError: m => { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${m}</div>`; statusBar.classList.add('hidden'); },
     });
-  } catch (e) {
-    out.className = ''; out.innerHTML = `<div class="error-box">❌ Error: ${e.message}</div>`; statusBar.classList.add('hidden');
-  }
-  btn.disabled = false;
+  } catch (e) { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${e.message}</div>`; statusBar.classList.add('hidden'); }
+  [document.getElementById('btnCargarReal'), document.getElementById('btnVsRealAction')].forEach(b => { if(b) b.disabled = false; });
   await refreshPlanStatus();
 }
 </script>

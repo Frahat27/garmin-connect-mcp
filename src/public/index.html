@@ -20,9 +20,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .app{display:flex;flex-direction:column;height:100dvh}
 
 /* ── Body wrap ── */
-.body-wrap{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.body-wrap{flex:1;overflow:hidden;display:flex;flex-direction:column}
 
-/* ── Objetivos panel (sidebar on desktop, first screen on mobile) ── */
+/* ── Objetivos panel ── */
 .objetivos-panel{display:none;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .objetivos-panel.mob-active{display:flex;flex:1}
 
@@ -35,9 +35,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 /* ── Desktop layout ── */
 @media(min-width:768px){
-  .body-wrap{display:grid;grid-template-columns:360px 1fr}
-  .objetivos-panel,.objetivos-panel.mob-active{display:flex!important;flex:none;width:auto;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)}
-  .output-panel,.output-panel.mob-active{display:flex!important;flex:none;overflow:hidden}
+  .body-wrap{flex-direction:row!important}
+  .objetivos-panel,.objetivos-panel.mob-active{
+    display:flex!important;flex:0 0 360px!important;width:360px!important;
+    flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    border-right:1px solid var(--border);background:var(--surface)
+  }
+  .output-panel,.output-panel.mob-active{
+    display:flex!important;flex:1 1 0!important;min-width:0;
+    flex-direction:column;overflow:hidden
+  }
   .nav-bar{display:none!important}
   .tabs-bar{display:flex;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch}
   .tab-item{flex-shrink:0;padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;-webkit-tap-highlight-color:transparent;transition:color .15s,border-color .15s;position:relative}

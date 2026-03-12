@@ -1,9 +1,8 @@
 import { createServer, IncomingMessage } from 'http';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { homedir } from 'os';
+import { readFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { GarminClient } from './client';
 import {
@@ -11,98 +10,50 @@ import {
   COACH_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT,
   HISTORY_ANALYSIS_SYSTEM_PROMPT, MACRO_PLAN_SYSTEM_PROMPT,
   buildHistoryAnalysisMessage, buildMacroPlanMessage,
-  generateHistoryContext, historyExists, historyFilePath,
-  loadPlan, savePlan, deletePlan, getPlanStatus,
+  generateHistoryContext, getPlanStatus,
 } from './coach/index';
 import type { AthleteProfile, DailyCheckin } from './coach/index';
+import {
+  initDb, loadAllSessions, upsertSession, touchSession, clearSession,
+  dbGetProfile, dbSaveProfile,
+  dbGetPlan, dbSavePlan, dbDeletePlan,
+  dbGetChatHistory, dbSaveChatHistory, dbDeleteChatHistory,
+  dbHistoryExists, dbGetHistoryCache, dbSaveHistoryCache,
+  dbGetAnalysis, dbSaveAnalysis,
+  populateTokenDir, saveTokensFromDir,
+} from './db';
+import type { DbSession } from './db';
 
 const PORT = parseInt(process.env.PORT ?? '3005');
-const DATA_DIR = process.env.PROFILE_DIR ?? join(homedir(), '.garmin-mcp');
-const SESSIONS_FILE = join(DATA_DIR, 'sessions.json');
 const __dir = dirname(fileURLToPath(import.meta.url));
 
-type Session = {
-  token: string;
-  email: string;
-  password: string;
-  anthropicKey: string;
-  lastSeen: number;
-};
+const sessions = new Map<string, DbSession>();
 
-const sessions = new Map<string, Session>();
-
-function loadSessions(): void {
-  try {
-    mkdirSync(DATA_DIR, { recursive: true });
-    if (existsSync(SESSIONS_FILE)) {
-      const data = JSON.parse(readFileSync(SESSIONS_FILE, 'utf-8')) as Session[];
-      const now = Date.now();
-      const thirtyDays = 30 * 24 * 3600 * 1000;
-      for (const s of data) {
-        if (now - s.lastSeen < thirtyDays) sessions.set(s.token, s);
-      }
-    }
-  } catch {}
+function getTokenDir(userId: string): string {
+  return join(tmpdir(), `garmin-tokens-${userId}`);
 }
 
-function saveSessions(): void {
-  try {
-    writeFileSync(SESSIONS_FILE, JSON.stringify([...sessions.values()], null, 2));
-  } catch {}
-}
-
-function getUserDir(email: string): string {
-  const safe = email.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const dir = join(DATA_DIR, 'users', safe);
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function getSession(req: IncomingMessage): Session | null {
+function getSession(req: IncomingMessage): DbSession | null {
   const token = req.headers['x-session-token'] as string | undefined;
   if (!token) return null;
   const session = sessions.get(token);
   if (!session) return null;
-  session.lastSeen = Date.now();
+  touchSession(session.userId).catch(() => {});
   return session;
 }
 
-function loadProfile(uDir: string): AthleteProfile | null {
+async function withGarmin<T>(
+  session: DbSession,
+  fn: (client: GarminClient) => Promise<T>,
+): Promise<T> {
+  const tDir = getTokenDir(session.userId);
+  await populateTokenDir(session.userId, tDir);
+  const client = new GarminClient(session.email, session.password, undefined, tDir);
   try {
-    const path = join(uDir, 'athlete-profile.json');
-    if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8')) as AthleteProfile;
-  } catch {}
-  return null;
-}
-
-function saveProfile(uDir: string, profile: AthleteProfile): void {
-  writeFileSync(join(uDir, 'athlete-profile.json'), JSON.stringify(profile, null, 2), 'utf-8');
-}
-
-function saveChatHistory(uDir: string, messages: Array<{ role: string; content: string }>): void {
-  try {
-    writeFileSync(join(uDir, 'chat-history.json'), JSON.stringify(messages, null, 2), 'utf-8');
-  } catch {}
-}
-
-function loadChatHistory(uDir: string): Array<{ role: string; content: string }> {
-  try {
-    const path = join(uDir, 'chat-history.json');
-    if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8'));
-  } catch {}
-  return [];
-}
-
-function saveTextData(uDir: string, filename: string, text: string): void {
-  try { writeFileSync(join(uDir, filename), text, 'utf-8'); } catch {}
-}
-
-function loadTextData(uDir: string, filename: string): string | null {
-  try {
-    const path = join(uDir, filename);
-    if (existsSync(path)) return readFileSync(path, 'utf-8');
-  } catch {}
-  return null;
+    return await fn(client);
+  } finally {
+    await saveTokensFromDir(session.userId, tDir).catch(() => {});
+  }
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -114,16 +65,11 @@ async function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-async function getHistoryContext(uDir: string, email: string): Promise<string | undefined> {
-  try {
-    if (historyExists(uDir, email)) {
-      return readFileSync(historyFilePath(uDir, email), 'utf-8');
-    }
-  } catch {}
-  return undefined;
+await initDb();
+for (const s of await loadAllSessions()) {
+  sessions.set(s.token, s);
 }
-
-loadSessions();
+console.error(`[server] ${sessions.size} sesiones activas cargadas desde DB`);
 
 const HTML = readFileSync(join(__dir, 'public/index.html'), 'utf-8');
 
@@ -147,35 +93,29 @@ const server = createServer(async (req, res) => {
       return;
     }
     try {
-      const uDir = getUserDir(email);
-      const { unlinkSync: unlink } = await import('fs');
-      for (const f of ['oauth1_token.json', 'oauth2_token.json', 'profile.json']) {
-        try { unlink(join(uDir, f)); } catch {}
-      }
-      try { unlink(historyFilePath(uDir, email)); } catch {}
-      const testClient = new GarminClient(email, password, undefined, uDir);
+      const tDir = join(tmpdir(), `garmin-login-${Date.now()}`);
+      const testClient = new GarminClient(email, password, undefined, tDir);
       await testClient.getLastActivity();
+      const session = await upsertSession(email, password, anthropicKey);
+      sessions.set(session.token, session);
+      await saveTokensFromDir(session.userId, tDir).catch(() => {});
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ token: session.token, email }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const isAuth = /401|unauthorized|credentials|password|login|invalid/i.test(msg);
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: isAuth ? 'Usuario o contraseña incorrectos.' : `Error al conectar con Garmin: ${msg}` }));
-      return;
     }
-    const existing = [...sessions.values()].find(s => s.email === email);
-    const token = existing?.token ?? randomUUID();
-    const session: Session = { token, email, password, anthropicKey, lastSeen: Date.now() };
-    sessions.set(token, session);
-    saveSessions();
-    getUserDir(email);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ token, email }));
     return;
   }
 
   if (method === 'POST' && url === '/api/auth/logout') {
     const session = getSession(req);
-    if (session) { sessions.delete(session.token); saveSessions(); }
+    if (session) {
+      sessions.delete(session.token);
+      await clearSession(session.userId).catch(() => {});
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     return;
@@ -191,18 +131,17 @@ const server = createServer(async (req, res) => {
   if (method === 'GET' && url === '/api/history-status') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    const uDir = getUserDir(session.email);
+    const exists = await dbHistoryExists(session.userId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ exists: historyExists(uDir, session.email) }));
+    res.end(JSON.stringify({ exists }));
     return;
   }
 
   if (method === 'GET' && url === '/api/plan-status') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    const uDir = getUserDir(session.email);
     const today = new Date().toISOString().split('T')[0];
-    const plan = loadPlan(uDir, session.email);
+    const plan = await dbGetPlan(session.userId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(getPlanStatus(plan, today)));
     return;
@@ -211,7 +150,7 @@ const server = createServer(async (req, res) => {
   if (method === 'DELETE' && url === '/api/plan') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    deletePlan(getUserDir(session.email), session.email);
+    await dbDeletePlan(session.userId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     return;
@@ -221,7 +160,7 @@ const server = createServer(async (req, res) => {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
     const planData = JSON.parse(await readBody(req)) as Record<string, unknown>;
-    savePlan(getUserDir(session.email), session.email, planData);
+    await dbSavePlan(session.userId, planData);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     return;
@@ -230,7 +169,7 @@ const server = createServer(async (req, res) => {
   if (method === 'GET' && url === '/api/saved-plan') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    const plan = loadPlan(getUserDir(session.email), session.email);
+    const plan = await dbGetPlan(session.userId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(plan));
     return;
@@ -240,7 +179,17 @@ const server = createServer(async (req, res) => {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(loadProfile(getUserDir(session.email))));
+    res.end(JSON.stringify(await dbGetProfile(session.userId)));
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/profile') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const profile = JSON.parse(await readBody(req)) as AthleteProfile;
+    await dbSaveProfile(session.userId, { ...profile, savedAt: new Date().toISOString() } as AthleteProfile);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
@@ -248,18 +197,14 @@ const server = createServer(async (req, res) => {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(loadChatHistory(getUserDir(session.email))));
+    res.end(JSON.stringify(await dbGetChatHistory(session.userId)));
     return;
   }
 
   if (method === 'DELETE' && url === '/api/chat-history') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    try {
-      const { unlinkSync } = await import('fs');
-      const path = join(getUserDir(session.email), 'chat-history.json');
-      if (existsSync(path)) unlinkSync(path);
-    } catch {}
+    await dbDeleteChatHistory(session.userId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
     return;
@@ -277,14 +222,11 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const uDir = getUserDir(session.email);
-      if (historyExists(uDir, session.email)) { send('done', { existed: true }); res.end(); return; }
-      await generateHistoryContext(
-        new GarminClient(session.email, session.password, undefined, getUserDir(session.email)),
-        uDir,
-        session.email,
-        (msg) => send('status', { message: msg }),
+      if (await dbHistoryExists(session.userId)) { send('done', { existed: true }); res.end(); return; }
+      const context = await withGarmin(session, (client) =>
+        generateHistoryContext(client, (msg) => send('status', { message: msg })),
       );
+      await dbSaveHistoryCache(session.userId, context);
       send('done', { existed: false });
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });
@@ -296,7 +238,7 @@ const server = createServer(async (req, res) => {
   if (method === 'GET' && url === '/api/historical-analysis') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    const text = loadTextData(getUserDir(session.email), 'historical-analysis.txt');
+    const text = await dbGetAnalysis(session.userId, 'historical');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ text }));
     return;
@@ -305,7 +247,7 @@ const server = createServer(async (req, res) => {
   if (method === 'GET' && url === '/api/macro-plan-text') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    const text = loadTextData(getUserDir(session.email), 'macro-plan.txt');
+    const text = await dbGetAnalysis(session.userId, 'macro');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ text }));
     return;
@@ -314,7 +256,7 @@ const server = createServer(async (req, res) => {
   if (method === 'GET' && url === '/api/plan-vs-real-text') {
     const session = getSession(req);
     if (!session) { res.writeHead(401); res.end(); return; }
-    const text = loadTextData(getUserDir(session.email), 'plan-vs-real.txt');
+    const text = await dbGetAnalysis(session.userId, 'plan_vs_real');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ text }));
     return;
@@ -334,24 +276,38 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const uDir = getUserDir(session.email);
 
       const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
-      saveProfile(uDir, { ...profile, savedAt: new Date().toISOString() });
+      await dbSaveProfile(session.userId, { ...profile, savedAt: new Date().toISOString() } as AthleteProfile);
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
+      const garminData = await withGarmin(session, (client) => fetchGarminData(client));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando plan...` });
 
+      const historyContext = await dbGetHistoryCache(session.userId) ?? undefined;
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
         system: COACH_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData, await getHistoryContext(uDir, session.email)) }],
+        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData, historyContext) }],
       });
 
-      stream.on('text', (text: string) => send('text', { content: text }));
-      await stream.finalMessage();
+      let fullText = '';
+      stream.on('text', (text: string) => { fullText += text; send('text', { content: text }); });
+      const finalMsg = await stream.finalMessage();
+
+      const pm = fullText.match(/\[PLAN_JSON\]([\s\S]*?)\[\/PLAN_JSON\]/);
+      if (pm) {
+        let raw = pm[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+        const s = raw.indexOf('{'); if (s > 0) raw = raw.slice(s);
+        try {
+          const pj = JSON.parse(raw) as Record<string, unknown>;
+          await dbSavePlan(session.userId, pj);
+          send('plan_update', { plan: pj });
+        } catch {}
+      }
+
+      console.error(`[analyze] input=${finalMsg.usage.input_tokens}tok output=${finalMsg.usage.output_tokens}tok`);
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });
@@ -365,8 +321,7 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const uDir = getUserDir(session.email);
-      const currentPlan = loadPlan(uDir, session.email);
+      const currentPlan = await dbGetPlan(session.userId);
       if (!currentPlan) {
         send('error', { message: 'No hay plan activo. Generá uno con Analizar primero.' });
         res.end(); return;
@@ -375,14 +330,15 @@ const server = createServer(async (req, res) => {
       const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
+      const garminData = await withGarmin(session, (client) => fetchGarminData(client));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Cruzando plan vs real...` });
 
+      const historyContext = await dbGetHistoryCache(session.userId) ?? undefined;
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
         system: REVIEW_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildReviewMessage(profile, checkin, garminData, currentPlan, await getHistoryContext(uDir, session.email)) }],
+        messages: [{ role: 'user', content: buildReviewMessage(profile, checkin, garminData, currentPlan, historyContext) }],
       });
 
       let fullText = '';
@@ -395,8 +351,8 @@ const server = createServer(async (req, res) => {
         const s = raw.indexOf('{'); if (s > 0) raw = raw.slice(s);
         try {
           const rj = JSON.parse(raw) as Record<string, unknown>;
-          savePlan(uDir, session.email, rj);
-          saveTextData(uDir, 'plan-vs-real.txt', fullText);
+          await dbSavePlan(session.userId, rj);
+          await dbSaveAnalysis(session.userId, 'plan_vs_real', fullText);
           send('plan_update', { plan: rj });
         } catch {}
       }
@@ -413,24 +369,24 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const uDir = getUserDir(session.email);
       const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
+      const garminData = await withGarmin(session, (client) => fetchGarminData(client));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Analizando historial...` });
 
+      const historyContext = await dbGetHistoryCache(session.userId) ?? undefined;
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
         system: HISTORY_ANALYSIS_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildHistoryAnalysisMessage(profile, garminData, await getHistoryContext(uDir, session.email)) }],
+        messages: [{ role: 'user', content: buildHistoryAnalysisMessage(profile, garminData, historyContext) }],
       });
 
       let fullText = '';
       stream.on('text', (text: string) => { fullText += text; send('text', { content: text }); });
       await stream.finalMessage();
-      saveTextData(uDir, 'historical-analysis.txt', fullText);
+      await dbSaveAnalysis(session.userId, 'historical', fullText);
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });
@@ -444,24 +400,24 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const uDir = getUserDir(session.email);
       const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
+      const garminData = await withGarmin(session, (client) => fetchGarminData(client));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando Plan Macro...` });
 
+      const historyContext = await dbGetHistoryCache(session.userId) ?? undefined;
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
         system: MACRO_PLAN_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildMacroPlanMessage(profile, garminData, await getHistoryContext(uDir, session.email)) }],
+        messages: [{ role: 'user', content: buildMacroPlanMessage(profile, garminData, historyContext) }],
       });
 
       let fullText = '';
       stream.on('text', (text: string) => { fullText += text; send('text', { content: text }); });
       await stream.finalMessage();
-      saveTextData(uDir, 'macro-plan.txt', fullText);
+      await dbSaveAnalysis(session.userId, 'macro', fullText);
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });
@@ -475,16 +431,15 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const uDir = getUserDir(session.email);
 
       const { messages, profile, checkin } = JSON.parse(await readBody(req)) as {
-        messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+        messages: Array<{ role: 'user' | 'assistant'; content: string | unknown[] }>;
         profile: AthleteProfile;
         checkin: DailyCheckin;
       };
 
       const today = new Date().toISOString().split('T')[0];
-      const currentPlan = loadPlan(uDir, session.email);
+      const currentPlan = await dbGetPlan(session.userId);
       const systemPrompt = buildChatSystemPrompt(profile, checkin, currentPlan, today);
 
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
@@ -504,12 +459,20 @@ const server = createServer(async (req, res) => {
         const s = raw.indexOf('{'); if (s > 0) raw = raw.slice(s);
         try {
           const pj = JSON.parse(raw) as Record<string, unknown>;
-          savePlan(uDir, session.email, pj);
+          await dbSavePlan(session.userId, pj);
           send('plan_update', { plan: pj });
         } catch {}
       }
 
-      saveChatHistory(uDir, [...messages, { role: 'assistant', content: fullText }]);
+      const historyToSave = [...messages, { role: 'assistant', content: fullText }].map(m => ({
+        role: m.role,
+        content: Array.isArray(m.content)
+          ? (m.content as Array<{ type: string; text?: string }>)
+              .filter(b => b.type !== 'image')
+              .map(b => b.text ?? '').join(' ').trim() || '[imagen adjunta]'
+          : String(m.content),
+      }));
+      await dbSaveChatHistory(session.userId, historyToSave);
       send('done');
     } catch (e) {
       send('error', { message: e instanceof Error ? e.message : String(e) });

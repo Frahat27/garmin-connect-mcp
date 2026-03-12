@@ -615,11 +615,57 @@ async function checkSession() {
   await restorePlanVsReal();
 }
 
+function clearAllContent() {
+  // Tabs text content
+  document.getElementById('historyContent').className = '';
+  document.getElementById('historyContent').innerHTML = '<div class="empty"><div class="ico">📊</div><p>Hacé clic en <strong>📊 Historial</strong> para obtener un diagnóstico profundo de tu entrenamiento.</p></div>';
+  document.getElementById('historyCharts').classList.add('hidden');
+
+  document.getElementById('macroContent').className = '';
+  document.getElementById('macroContent').innerHTML = '<div class="empty"><div class="ico">📋</div><p>Hacé clic en <strong>📋 Plan Macro</strong> para obtener la periodización completa hasta tu evento.</p></div>';
+  document.getElementById('macroCharts').classList.add('hidden');
+
+  document.getElementById('plan2wContent').className = '';
+  document.getElementById('plan2wContent').innerHTML = '<div class="empty"><div class="ico">🗓</div><p>Hacé clic en <strong>🗓 Plan 2 Sem →</strong> para obtener tu plan detallado.</p></div>';
+
+  document.getElementById('calendarContent').innerHTML = '<div class="cal-empty"><span style="font-size:36px">📅</span><span>El calendario aparece aquí después de generar el plan.</span></div>';
+
+  document.getElementById('planVsRealContent').className = '';
+  document.getElementById('planVsRealContent').innerHTML = '<div class="empty"><div class="ico">⚡</div><p>Hacé clic en <strong>🔄 Cargar Real</strong> para cruzar tus actividades Garmin con el plan.</p></div>';
+  document.getElementById('planVsRealCharts').classList.add('hidden');
+
+  // Chat
+  chatHistory = [];
+  chatStreaming = false;
+  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:36px">💬</span><span>Hablale directamente al coach.<br>Pedí ajustes al plan, preguntá sobre intensidades,<br>nutrición o recuperación.</span></div>';
+  document.getElementById('chatPlanBanner').classList.add('hidden');
+
+  // Tab labels
+  document.getElementById('tabBtnHistory').textContent = '📊 Historial';
+  document.getElementById('tabBtnMacro').textContent = '📋 Plan Macro';
+  document.getElementById('tabBtnPlan2w').textContent = '🗓 Plan 2 Sem';
+  document.getElementById('tabBtnCalendar').textContent = '📅 Calendario';
+  document.getElementById('tabBtnPlanVsReal').textContent = '⚡ vs Real';
+  document.getElementById('tabBtnChat').textContent = '💬 Chat';
+
+  // Destroy charts
+  ['_chartVolume','_chartDiscipline','_chartMacro','_chartCompliance'].forEach(k => {
+    if (window[k]) { window[k].destroy(); window[k] = null; }
+  });
+
+  // Plan banner + buttons
+  document.getElementById('planBanner').classList.add('hidden');
+  document.getElementById('btnCargarReal').disabled = true;
+  allSessions.length = 0;
+  showTab('history');
+}
+
 async function logout() {
   await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   localStorage.removeItem('sessionToken');
   sessionToken = null;
   document.getElementById('btnAccount').textContent = '⚙ Cuenta';
+  clearAllContent();
   document.getElementById('loginOverlay').classList.remove('hidden');
 }
 
@@ -711,6 +757,7 @@ async function submitLogin() {
     localStorage.setItem('sessionToken', r.token);
     document.getElementById('loginOverlay').classList.add('hidden');
     document.getElementById('btnAccount').textContent = `⚙ ${email}`;
+    clearAllContent();
     await checkHistory();
     await refreshPlanStatus();
     await restoreSavedPlan();

@@ -147,7 +147,11 @@ const server = createServer(async (req, res) => {
       return;
     }
     try {
-      const testClient = new GarminClient(email, password, undefined, getUserDir(email));
+      const uDir = getUserDir(email);
+      for (const f of ['oauth1_token.json', 'oauth2_token.json', 'profile.json']) {
+        try { (await import('fs')).unlinkSync(join(uDir, f)); } catch {}
+      }
+      const testClient = new GarminClient(email, password, undefined, uDir);
       await testClient.getLastActivity();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

@@ -76,6 +76,7 @@ export class GarminAuth {
   private profile: UserProfile | null = null;
   private isAuthenticated = false;
   private promptMfa?: () => Promise<string>;
+  private tokenDir: string;
 
   get displayName(): string {
     return this.profile?.displayName ?? '';
@@ -85,10 +86,11 @@ export class GarminAuth {
     return this.profile?.profileId ?? 0;
   }
 
-  constructor(email: string, password: string, promptMfa?: () => Promise<string>) {
+  constructor(email: string, password: string, promptMfa?: () => Promise<string>, tokenDir?: string) {
     this.email = email;
     this.password = password;
     this.promptMfa = promptMfa;
+    this.tokenDir = tokenDir ?? TOKEN_DIR;
     this.loadTokens();
   }
 
@@ -407,9 +409,9 @@ export class GarminAuth {
 
   private loadTokens(): void {
     try {
-      const oauth1Path = path.join(TOKEN_DIR, OAUTH1_TOKEN_FILE);
-      const oauth2Path = path.join(TOKEN_DIR, OAUTH2_TOKEN_FILE);
-      const profilePath = path.join(TOKEN_DIR, PROFILE_FILE);
+      const oauth1Path = path.join(this.tokenDir, OAUTH1_TOKEN_FILE);
+      const oauth2Path = path.join(this.tokenDir, OAUTH2_TOKEN_FILE);
+      const profilePath = path.join(this.tokenDir, PROFILE_FILE);
 
       if (fs.existsSync(oauth1Path)) {
         this.oauth1Token = JSON.parse(fs.readFileSync(oauth1Path, 'utf-8'));
@@ -428,27 +430,27 @@ export class GarminAuth {
   }
 
   private saveTokens(): void {
-    if (!fs.existsSync(TOKEN_DIR)) {
-      fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 });
+    if (!fs.existsSync(this.tokenDir)) {
+      fs.mkdirSync(this.tokenDir, { recursive: true, mode: 0o700 });
     }
 
     if (this.oauth1Token) {
       fs.writeFileSync(
-        path.join(TOKEN_DIR, OAUTH1_TOKEN_FILE),
+        path.join(this.tokenDir, OAUTH1_TOKEN_FILE),
         JSON.stringify(this.oauth1Token, null, 2),
         { mode: 0o600 },
       );
     }
     if (this.oauth2Token) {
       fs.writeFileSync(
-        path.join(TOKEN_DIR, OAUTH2_TOKEN_FILE),
+        path.join(this.tokenDir, OAUTH2_TOKEN_FILE),
         JSON.stringify(this.oauth2Token, null, 2),
         { mode: 0o600 },
       );
     }
     if (this.profile) {
       fs.writeFileSync(
-        path.join(TOKEN_DIR, PROFILE_FILE),
+        path.join(this.tokenDir, PROFILE_FILE),
         JSON.stringify(this.profile, null, 2),
         { mode: 0o600 },
       );

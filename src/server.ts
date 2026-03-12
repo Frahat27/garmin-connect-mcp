@@ -147,7 +147,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     try {
-      const testClient = new GarminClient(email, password);
+      const testClient = new GarminClient(email, password, undefined, getUserDir(email));
       await testClient.getLastActivity();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -274,7 +274,7 @@ const server = createServer(async (req, res) => {
       const uDir = getUserDir(session.email);
       if (historyExists(uDir, session.email)) { send('done', { existed: true }); res.end(); return; }
       await generateHistoryContext(
-        new GarminClient(session.email, session.password),
+        new GarminClient(session.email, session.password, undefined, getUserDir(session.email)),
         uDir,
         session.email,
         (msg) => send('status', { message: msg }),
@@ -334,7 +334,7 @@ const server = createServer(async (req, res) => {
       saveProfile(uDir, { ...profile, savedAt: new Date().toISOString() });
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando plan...` });
 
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
@@ -369,7 +369,7 @@ const server = createServer(async (req, res) => {
       const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Cruzando plan vs real...` });
 
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
@@ -411,7 +411,7 @@ const server = createServer(async (req, res) => {
       const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Analizando historial...` });
 
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
@@ -442,7 +442,7 @@ const server = createServer(async (req, res) => {
       const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
-      const garminData = await fetchGarminData(new GarminClient(session.email, session.password));
+      const garminData = await fetchGarminData(new GarminClient(session.email, session.password, undefined, getUserDir(session.email)));
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando Plan Macro...` });
 
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({

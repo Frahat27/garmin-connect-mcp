@@ -132,7 +132,7 @@ const server = createServer(async (req, res) => {
   const method = req.method ?? 'GET';
 
   if (method === 'GET' && url === '/') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
     res.end(HTML);
     return;
   }

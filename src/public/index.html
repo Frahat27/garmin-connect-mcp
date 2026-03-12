@@ -278,7 +278,7 @@ input[type=number]{text-align:center}
       <label>Anthropic API Key</label>
       <input type="password" id="loginAnthropicKey" placeholder="sk-ant-...">
     </div>
-    <button class="btn btn-primary" style="width:100%;margin-top:6px;padding:10px;font-size:14px" onclick="submitLogin()">Ingresar →</button>
+    <button class="btn btn-primary" id="btnLogin" style="width:100%;margin-top:6px;padding:10px;font-size:14px" onclick="submitLogin()">Ingresar →</button>
     <div class="overlay-error" id="loginError"></div>
   </div>
 </div>
@@ -746,12 +746,17 @@ async function submitLogin() {
   const password = document.getElementById('loginPassword').value;
   const anthropicKey = document.getElementById('loginAnthropicKey').value.trim();
   const err = document.getElementById('loginError');
+  const btn = document.getElementById('btnLogin');
   if (!email || !password || !anthropicKey) { err.textContent = 'Completá los tres campos.'; return; }
   err.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Verificando credenciales Garmin...';
   const r = await fetch('/api/auth/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, anthropicKey }),
-  }).then(r => r.json());
+  }).then(r => r.json()).catch(() => ({ error: 'Error de conexión.' }));
+  btn.disabled = false;
+  btn.textContent = 'Ingresar →';
   if (r.token) {
     sessionToken = r.token;
     localStorage.setItem('sessionToken', r.token);

@@ -146,6 +146,16 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'Completá los tres campos.' }));
       return;
     }
+    try {
+      const testClient = new GarminClient(email, password);
+      await testClient.getLastActivity();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const isAuth = /401|unauthorized|credentials|password|login|invalid/i.test(msg);
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: isAuth ? 'Usuario o contraseña incorrectos.' : `Error al conectar con Garmin: ${msg}` }));
+      return;
+    }
     const existing = [...sessions.values()].find(s => s.email === email);
     const token = existing?.token ?? randomUUID();
     const session: Session = { token, email, password, anthropicKey, lastSeen: Date.now() };

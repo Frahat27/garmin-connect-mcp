@@ -330,11 +330,23 @@ input[type=number]{text-align:center;padding:8px 4px}
 <script>
 (function(){
   function applyLayout(){
-    var d=window.innerWidth>=768;
-    document.documentElement.classList.toggle('desktop',d);
-    document.documentElement.classList.toggle('mobile',!d);
+    try {
+      var isD=window.innerWidth>=768;
+      document.documentElement.classList.toggle('desktop',isD);
+      document.documentElement.classList.toggle('mobile',!isD);
+      var bw=document.querySelector('.body-wrap');
+      var op=document.getElementById('screenObjetivos');
+      var out=document.getElementById('outputPanel');
+      var nav=document.querySelector('.nav-bar');
+      var tabs=document.querySelector('.tabs-bar');
+      if(bw) bw.style.flexDirection=isD?'row':'';
+      if(op) op.style.cssText=isD?'display:flex!important;flex:0 0 360px;width:360px;flex-direction:column;overflow-y:auto;border-right:1px solid #30363d;background:#161b22':'';
+      if(out) out.style.cssText=isD?'display:flex!important;flex:1;min-width:0;flex-direction:column;overflow:hidden':'';
+      if(nav) nav.style.display=isD?'none':'';
+      if(tabs) tabs.style.display=isD?'flex':'none';
+    } catch(e){}
   }
-  applyLayout();
+  document.addEventListener('DOMContentLoaded',applyLayout);
   window.addEventListener('resize',applyLayout);
 })();
 </script>
@@ -566,6 +578,7 @@ input[type=number]{text-align:center;padding:8px 4px}
         </div>
 
         <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:8px">
+          <button class="btn btn-ghost" id="btnSaveProfile" onclick="saveProfileOnly()" style="align-self:flex-end;font-size:12px;padding:5px 12px">💾 Guardar objetivos</button>
           <button class="btn btn-primary btn-full" id="btnAnalyzeSidebar" onclick="generatePlan2w()">🗓 Generar Plan 2 Semanas →</button>
           <div style="display:flex;gap:8px">
             <button class="btn btn-ghost btn-full" id="btnHistory" style="flex:1" onclick="analyzeHistory()">📊 Historial</button>
@@ -670,7 +683,13 @@ input[type=number]{text-align:center;padding:8px 4px}
         </div>
       </div>
       <div class="chat-input-wrap">
+        <div id="imgPreviewWrap" style="display:none;padding:8px 12px 4px;position:relative;width:fit-content">
+          <img id="imgPreviewThumb" style="height:64px;border-radius:8px;border:1px solid var(--border);display:block">
+          <button onclick="clearPendingImage()" style="position:absolute;top:4px;right:-8px;background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:20px;height:20px;font-size:10px;cursor:pointer;color:var(--text);line-height:1">✕</button>
+        </div>
         <div class="chat-input-area">
+          <input type="file" id="imgFileInput" accept="image/*" style="display:none" onchange="onImageSelected(event)">
+          <button class="chat-send-btn" id="btnAttachImg" onclick="document.getElementById('imgFileInput').click()" style="background:var(--surface2);color:var(--muted);font-size:16px" title="Adjuntar imagen">📎</button>
           <textarea id="chatInput" rows="1" placeholder="Escribile al coach..." onkeydown="chatKeydown(event)" oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,110)+'px'"></textarea>
           <button class="chat-send-btn" id="btnChatSend" onclick="sendChatMessage()">→</button>
         </div>
@@ -1197,6 +1216,28 @@ function closeModal() { document.getElementById('sessionModal').classList.add('h
 
 // ── Chat ──────────────────────────────────────────────────────
 let chatHistory = [];
+let pendingImage = null;
+let pendingImageType = 'image/jpeg';
+
+function onImageSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  pendingImageType = file.type || 'image/jpeg';
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    pendingImage = ev.target.result.split(',')[1];
+    document.getElementById('imgPreviewThumb').src = ev.target.result;
+    document.getElementById('imgPreviewWrap').style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+function clearPendingImage() {
+  pendingImage = null;
+  document.getElementById('imgPreviewWrap').style.display = 'none';
+  document.getElementById('imgPreviewThumb').src = '';
+}
 let chatStreaming = false;
 
 async function restoreSavedPlan() {
@@ -1246,17 +1287,38 @@ async function sendChatMessage() {
   if (chatStreaming) return;
   const input = document.getElementById('chatInput');
   const text = input.value.trim();
-  if (!text) return;
+  if (!text && !pendingImage) return;
   const empty = document.getElementById('chatEmpty');
   if (empty) empty.remove();
   input.value = ''; input.style.height = '';
+
   const msgs = document.getElementById('chatMessages');
   const userBubble = document.createElement('div');
   userBubble.className = 'chat-bubble user';
-  userBubble.textContent = text;
+
+  let messageContent;
+  if (pendingImage) {
+    const imgEl = document.createElement('img');
+    imgEl.src = `data:${pendingImageType};base64,${pendingImage}`;
+    imgEl.style.cssText = 'max-width:220px;max-height:160px;border-radius:8px;display:block;margin-bottom:6px';
+    userBubble.appendChild(imgEl);
+    const blocks = [{ type: 'image', source: { type: 'base64', media_type: pendingImageType, data: pendingImage } }];
+    if (text) blocks.push({ type: 'text', text });
+    messageContent = blocks;
+    clearPendingImage();
+  } else {
+    messageContent = text;
+  }
+
+  if (text) {
+    const t = document.createElement('span');
+    t.textContent = text;
+    userBubble.appendChild(t);
+  }
+
   msgs.appendChild(userBubble);
   msgs.scrollTop = msgs.scrollHeight;
-  chatHistory.push({ role: 'user', content: text });
+  chatHistory.push({ role: 'user', content: messageContent });
   const asBubble = document.createElement('div');
   asBubble.className = 'chat-bubble assistant is-streaming';
   msgs.appendChild(asBubble);
@@ -1481,6 +1543,22 @@ async function generateMacroPlan() {
 }
 
 // ── generatePlan2w ────────────────────────────────────────────
+async function saveProfileOnly() {
+  const btn = document.getElementById('btnSaveProfile');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try {
+    const { profile } = collectData();
+    await apiFetch('/api/profile', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(profile) });
+    btn.textContent = '✅ Guardado';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+  } catch(e) {
+    btn.textContent = '❌ Error';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+  }
+}
+
 async function generatePlan2w() {
   const statusBar = document.getElementById('statusPlan2w');
   const statusMsg = document.getElementById('statusPlan2wMsg');

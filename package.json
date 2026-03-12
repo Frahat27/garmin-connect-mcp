@@ -37,9 +37,11 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@types/pg": "^8.18.0",
     "axios": "^1.7.9",
     "axios-cookiejar-support": "^5.0.5",
     "oauth-1.0a": "^2.2.6",
+    "pg": "^8.20.0",
     "tough-cookie": "^5.1.2",
     "zod": "^3.24.2"
   },

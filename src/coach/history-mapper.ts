@@ -1,6 +1,4 @@
 import type { GarminClient } from '../client';
-import { writeFileSync, existsSync, readFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
 
 type SportStats = { count: number; totalKm: number; totalMin: number };
 type YearData = {
@@ -27,24 +25,10 @@ function toWeekStart(dateStr: string): string {
   return monday.toISOString().split('T')[0];
 }
 
-export function historyFilePath(profileDir: string, email: string): string {
-  const safe = email.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-  return join(profileDir, `${safe}-history.md`);
-}
-
-export function historyExists(profileDir: string, email: string): boolean {
-  return existsSync(historyFilePath(profileDir, email));
-}
-
 export async function generateHistoryContext(
   client: GarminClient,
-  profileDir: string,
-  email: string,
   onProgress: (msg: string) => void = () => {},
 ): Promise<string> {
-  const hPath = historyFilePath(profileDir, email);
-  if (existsSync(hPath)) return readFileSync(hPath, 'utf-8');
-  if (!existsSync(profileDir)) mkdirSync(profileDir, { recursive: true });
 
   const now = new Date();
   const cutoff = new Date(now);
@@ -175,7 +159,5 @@ export async function generateHistoryContext(
   lines.push(`\n## Consistencia\n- Semanas activas: ${allWeeks.size} de ~${Math.round(allActivities.length > 0 ? allWeeks.size : 0)} posibles`);
   lines.push(`- Promedio de sesiones por semana activa: ${allWeeks.size > 0 ? (allActivities.length / allWeeks.size).toFixed(1) : 'N/A'}`);
 
-  const md = lines.join('\n');
-  writeFileSync(hPath, md, 'utf-8');
-  return md;
+  return lines.join('\n');
 }

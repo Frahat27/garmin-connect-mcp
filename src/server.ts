@@ -148,9 +148,11 @@ const server = createServer(async (req, res) => {
     }
     try {
       const uDir = getUserDir(email);
+      const { unlinkSync: unlink } = await import('fs');
       for (const f of ['oauth1_token.json', 'oauth2_token.json', 'profile.json']) {
-        try { (await import('fs')).unlinkSync(join(uDir, f)); } catch {}
+        try { unlink(join(uDir, f)); } catch {}
       }
+      try { unlink(historyFilePath(uDir, email)); } catch {}
       const testClient = new GarminClient(email, password, undefined, uDir);
       await testClient.getLastActivity();
     } catch (e) {

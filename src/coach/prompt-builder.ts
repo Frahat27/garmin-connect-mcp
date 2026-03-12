@@ -4,6 +4,25 @@ import { planToContext, addDays } from './plan-store';
 
 const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
+function safeJson(obj: unknown, maxChars = 1500): string {
+  if (obj == null) return 'null';
+  const s = JSON.stringify(obj);
+  return s.length > maxChars ? s.slice(0, maxChars) + '…' : s;
+}
+
+function summarizeSleep(sleepRaw: unknown): string {
+  if (!sleepRaw) return 'no disponible';
+  const days = Array.isArray(sleepRaw) ? sleepRaw : [sleepRaw];
+  return days.slice(-7).map((d: Record<string, unknown>) => {
+    const date = d.calendarDate ?? d.sleepStartTimestampGMT ?? '';
+    const score = (d.overallSleepScore as Record<string, unknown>)?.value ?? d.overallSleepScore ?? '';
+    const total = d.sleepTimeSeconds ? Math.round(Number(d.sleepTimeSeconds) / 60) : '';
+    const deep = d.deepSleepSeconds ? Math.round(Number(d.deepSleepSeconds) / 60) : '';
+    const rem = d.remSleepSeconds ? Math.round(Number(d.remSleepSeconds) / 60) : '';
+    return `${date}: score=${score}, total=${total}min, deep=${deep}min, REM=${rem}min`;
+  }).join(' | ');
+}
+
 function formatDays(indices: number[]): string {
   if (!indices || indices.length === 0) return 'no especificado';
   return indices.sort((a, b) => a - b).map(i => DAY_NAMES[i] ?? `día ${i}`).join(', ');
@@ -267,11 +286,11 @@ export function buildUserMessage(
 
   lines.push('\n## Rendimiento');
   if (garmin.vo2max !== null) lines.push(`- VO2Max estimado: ${garmin.vo2max} ml/kg/min`);
-  if (garmin.trainingStatus) lines.push(`- Training Status: ${JSON.stringify(garmin.trainingStatus)}`);
-  if (garmin.trainingReadiness) lines.push(`- Training Readiness: ${JSON.stringify(garmin.trainingReadiness)}`);
-  if (garmin.racePredictions) lines.push(`- Race Predictions: ${JSON.stringify(garmin.racePredictions)}`);
-  if (garmin.lactateThreshold) lines.push(`- Umbral de Lactato: ${JSON.stringify(garmin.lactateThreshold)}`);
-  if (garmin.personalRecords) lines.push(`- Récords personales: ${JSON.stringify(garmin.personalRecords)}`);
+  if (garmin.trainingStatus) lines.push(`- Training Status: ${safeJson(garmin.trainingStatus)}`);
+  if (garmin.trainingReadiness) lines.push(`- Training Readiness: ${safeJson(garmin.trainingReadiness)}`);
+  if (garmin.racePredictions) lines.push(`- Race Predictions: ${safeJson(garmin.racePredictions)}`);
+  if (garmin.lactateThreshold) lines.push(`- Umbral de Lactato: ${safeJson(garmin.lactateThreshold)}`);
+  if (garmin.personalRecords) lines.push(`- Récords personales: ${safeJson(garmin.personalRecords, 2000)}`);
 
   lines.push('\n## Recuperación (últimos 7 días)');
   if (garmin.avgRestingHR7d !== null) lines.push(`- FC reposo promedio: ${garmin.avgRestingHR7d} bpm`);
@@ -279,7 +298,7 @@ export function buildUserMessage(
   if (garmin.hrvToday !== null) lines.push(`- HRV hoy: ${garmin.hrvToday} ms`);
   if (garmin.avgBodyBattery7d !== null) lines.push(`- Body Battery promedio 7d: ${garmin.avgBodyBattery7d}`);
   if (garmin.latestWeight !== null) lines.push(`- Último peso en Garmin: ${garmin.latestWeight} kg`);
-  if (garmin.sleepRaw) lines.push(`- Sueño últimos 7d: ${JSON.stringify(garmin.sleepRaw)}`);
+  if (garmin.sleepRaw) lines.push(`- Sueño últimos 7d: ${summarizeSleep(garmin.sleepRaw)}`);
 
   if (garmin.weeklyVolumes.length > 0) {
     lines.push('\n## Volúmenes semanales (últimas 9 semanas)');
@@ -435,8 +454,8 @@ export function buildHistoryAnalysisMessage(profile: AthleteProfile, garmin: Gar
   }
 
   if (garmin.vo2max) lines.push(`\nVO2max: ${garmin.vo2max}`);
-  if (garmin.trainingStatus) lines.push(`Training status: ${JSON.stringify(garmin.trainingStatus)}`);
-  if (garmin.personalRecords) lines.push(`\nRecords personales: ${JSON.stringify(garmin.personalRecords)}`);
+  if (garmin.trainingStatus) lines.push(`Training status: ${safeJson(garmin.trainingStatus)}`);
+  if (garmin.personalRecords) lines.push(`\nRecords personales: ${safeJson(garmin.personalRecords, 2000)}`);
   if (historyContext) lines.push(`\n# HISTORIAL 4 AÑOS\n${historyContext.slice(0, 60_000)}`);
 
   lines.push(`\nFecha actual: ${garmin.fetchDate}. Realizá el análisis profundo del historial del atleta conforme al sistema prompt, incluyendo el bloque [CHART_JSON] al final.`);

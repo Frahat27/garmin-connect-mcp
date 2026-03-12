@@ -253,7 +253,7 @@ export function buildUserMessage(
 
   if (historyContext) {
     lines.push('\n# HISTORIAL DE 4 AÑOS (contexto completo)\n');
-    lines.push(historyContext);
+    lines.push(historyContext.slice(0, 40_000));
     lines.push('\n*Usar este historial para: identificar tendencias, calcular distancia al pico máximo, y orientar la planificación de las próximas semanas.*\n');
   }
 
@@ -357,7 +357,7 @@ export function buildReviewMessage(
 
   if (historyContext) {
     lines.push('\n# HISTORIAL DE 4 AÑOS\n');
-    lines.push(historyContext);
+    lines.push(historyContext.slice(0, 30_000));
   }
 
   lines.push(`\n\n---\nFecha actual: ${garmin.fetchDate}. Cruzá el plan con las actividades Garmin y generá la revisión completa con el bloque [REVIEW_JSON] al final.`);
@@ -437,7 +437,7 @@ export function buildHistoryAnalysisMessage(profile: AthleteProfile, garmin: Gar
   if (garmin.vo2max) lines.push(`\nVO2max: ${garmin.vo2max}`);
   if (garmin.trainingStatus) lines.push(`Training status: ${JSON.stringify(garmin.trainingStatus)}`);
   if (garmin.personalRecords) lines.push(`\nRecords personales: ${JSON.stringify(garmin.personalRecords)}`);
-  if (historyContext) lines.push(`\n# HISTORIAL 4 AÑOS\n${historyContext}`);
+  if (historyContext) lines.push(`\n# HISTORIAL 4 AÑOS\n${historyContext.slice(0, 60_000)}`);
 
   lines.push(`\nFecha actual: ${garmin.fetchDate}. Realizá el análisis profundo del historial del atleta conforme al sistema prompt, incluyendo el bloque [CHART_JSON] al final.`);
   return lines.join('\n');
@@ -463,7 +463,7 @@ export function buildMacroPlanMessage(profile: AthleteProfile, garmin: GarminSum
   });
 
   if (garmin.vo2max) lines.push(`\nVO2max: ${garmin.vo2max}`);
-  if (historyContext) lines.push(`\n# HISTORIAL 4 AÑOS (resumen)\n${historyContext.slice(0, 2000)}`);
+  if (historyContext) lines.push(`\n# HISTORIAL 4 AÑOS (resumen)\n${historyContext.slice(0, 20_000)}`);
 
   lines.push(`\nFecha actual: ${garmin.fetchDate}. Generá el Plan Macro de periodización completo desde hoy hasta el evento, incluyendo el bloque [MACRO_JSON] al final.`);
   return lines.join('\n');

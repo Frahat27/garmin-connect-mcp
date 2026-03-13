@@ -1,8 +1,29 @@
-import type { AthleteProfile, DailyCheckin, GarminSummary } from './types';
+import type { AthleteProfile, DailyCheckin, GarminSummary, Goal, CoachType, AnalysisDepth } from './types';
 import type { StoredPlan } from './plan-store';
 import { planToContext, addDays } from './plan-store';
 
 const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+function formatGoals(goals: Goal[], profile: AthleteProfile): string {
+  if (goals.length === 0) {
+    return `- **Evento:** ${profile.eventName} — ${profile.eventDistance}\n- **Fecha del evento:** ${profile.eventDate}\n- **Prioridad:** ${profile.eventPriority}${profile.secondaryObjective ? `\n- **Objetivo secundario:** ${profile.secondaryObjective}` : ''}`;
+  }
+  const sorted = [...goals].sort((a, b) => {
+    const po = { A: 0, B: 1, C: 2 };
+    return (po[a.priority] - po[b.priority]) || a.eventDate.localeCompare(b.eventDate);
+  });
+  return sorted.map(g =>
+    `- [${g.priority}] ${g.eventName} — ${g.eventDistance} (${g.eventDate})${g.comment ? `: ${g.comment}` : ''}`,
+  ).join('\n');
+}
+
+function getPrimaryGoal(goals: Goal[], profile: AthleteProfile): { name: string; distance: string; date: string; priority: string } {
+  if (goals.length === 0) return { name: profile.eventName, distance: profile.eventDistance, date: profile.eventDate, priority: profile.eventPriority };
+  const today = new Date().toISOString().split('T')[0];
+  const typeA = goals.filter(g => g.priority === 'A' && g.eventDate >= today).sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+  const primary = typeA[0] ?? goals[0];
+  return { name: primary.eventName, distance: primary.eventDistance, date: primary.eventDate, priority: primary.priority };
+}
 
 function safeJson(obj: unknown, maxChars = 1500): string {
   if (obj == null) return 'null';
@@ -28,23 +49,90 @@ function formatDays(indices: number[]): string {
   return indices.sort((a, b) => a - b).map(i => DAY_NAMES[i] ?? `día ${i}`).join(', ');
 }
 
-export const COACH_SYSTEM_PROMPT = `Eres un coach experto de resistencia (running y triatlón) y fuerza, con profundo conocimiento de:
-- Teoría del entrenamiento: periodización, gestión de carga, progresión, tapering
-- Fisiología del ejercicio: zonas de FC, umbral de lactato, VO2max, adaptaciones aeróbicas
-- Prevención de lesiones y gestión de RED-S
-- Nutrición deportiva aplicada al entrenamiento de resistencia
+function formatGarminForChat(garmin: GarminSummary): string {
+  const lines: string[] = ['\nDATOS DE GARMIN (actividades reales del atleta):'];
 
-IDIOMA: Responde siempre en español.
+  lines.push(`\nMétricas de rendimiento:`);
+  if (garmin.vo2max !== null) lines.push(`- VO2Max: ${garmin.vo2max} ml/kg/min`);
+  if (garmin.avgRestingHR7d !== null) lines.push(`- FC reposo promedio 7d: ${garmin.avgRestingHR7d} bpm`);
+  if (garmin.restingHRTrend.length > 0) lines.push(`- Tendencia FC reposo: [${garmin.restingHRTrend.join(', ')}]`);
+  if (garmin.hrvToday !== null) lines.push(`- HRV hoy: ${garmin.hrvToday} ms`);
+  if (garmin.avgBodyBattery7d !== null) lines.push(`- Body Battery promedio 7d: ${garmin.avgBodyBattery7d}`);
+  if (garmin.trainingStatus) lines.push(`- Training Status: ${safeJson(garmin.trainingStatus)}`);
+  if (garmin.trainingReadiness) lines.push(`- Training Readiness: ${safeJson(garmin.trainingReadiness)}`);
+  if (garmin.racePredictions) lines.push(`- Predicciones de carrera: ${safeJson(garmin.racePredictions)}`);
+  if (garmin.lactateThreshold) lines.push(`- Umbral de lactato: ${safeJson(garmin.lactateThreshold)}`);
+  if (garmin.latestWeight !== null) lines.push(`- Peso: ${garmin.latestWeight} kg`);
+  if (garmin.sleepRaw) lines.push(`- Sueño 7d: ${summarizeSleep(garmin.sleepRaw)}`);
 
-REGLAS DE PLANIFICACIÓN:
-- Plan para las PRÓXIMAS DOS SEMANAS, sesión por sesión, usando los días disponibles indicados por el atleta
-- Cada sesión incluye: deporte, duración, set principal detallado, guía de intensidad (zonas FC/ritmo/potencia), propósito, RPE objetivo, entrada en calor y vuelta a la calma
-- Máximo 2–3 sesiones clave/semana; alternancia duro/fácil; sesión larga bien ubicada
+  if (garmin.weeklyVolumes.length > 0) {
+    lines.push(`\nVolúmenes semanales:`);
+    lines.push('| Semana | Run km | Run min | Bike km | Swim m | Gym min | Total min |');
+    lines.push('|--------|--------|---------|---------|--------|---------|-----------|');
+    garmin.weeklyVolumes.slice(-9).forEach(w => {
+      lines.push(`| ${w.weekStart} | ${w.runningKm} | ${w.runningMin} | ${w.cyclingKm} | ${w.swimmingM} | ${w.strengthMin} | ${w.totalMin} |`);
+    });
+  }
+
+  if (garmin.activities.length > 0) {
+    lines.push(`\nÚltimas ${Math.min(garmin.activities.length, 30)} actividades:`);
+    lines.push('| Fecha | Tipo | Km | Min | FC prom | Z1 | Z2 | Z3 | Z4 | Z5 |');
+    lines.push('|-------|------|----|----|---------|----|----|----|----|-----|');
+    garmin.activities.slice(-30).forEach(a => {
+      lines.push(`| ${a.date} | ${a.type} | ${a.distanceKm ?? '-'} | ${a.durationMin} | ${a.avgHR ?? '-'} | ${a.zone1Min} | ${a.zone2Min} | ${a.zone3Min} | ${a.zone4Min} | ${a.zone5Min} |`);
+    });
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+const COACH_PERSONAS: Record<CoachType, { name: string; intro: string; style: string; planning: string }> = {
+  shalo: {
+    name: 'Coach Shalo Gazna',
+    intro: 'Eres un coach experto de resistencia (running y triatlón) y fuerza, con profundo conocimiento de:\n- Teoría del entrenamiento: periodización, gestión de carga, progresión, tapering\n- Fisiología del ejercicio: zonas de FC, umbral de lactato, VO2max, adaptaciones aeróbicas\n- Prevención de lesiones y gestión de RED-S\n- Nutrición deportiva aplicada al entrenamiento de resistencia',
+    style: 'Sos exigente, directo y motivador. Entrenás atletas que se esfuerzan y buscan mejorar constantemente. No le tenés miedo a pedir más cuando el atleta puede dar más.',
+    planning: `- Máximo 2–3 sesiones clave/semana; alternancia duro/fácil; sesión larga bien ubicada
 - Fuerza integrada para prevención de lesiones y rendimiento
 - Si dolor >3/10 o historial de fractura por estrés: rampa gradual, sin sesiones de impacto alto
 - Mencioná principios de combustible en sesiones clave (carbos pre/post, proteína)
 - Sin déficits calóricos que comprometan el entrenamiento
-- Usá el historial de 4 años para identificar el pico máximo del atleta y orientar el plan hacia alcanzarlo y superarlo
+- Usá el historial de 4 años para identificar el pico máximo del atleta y orientar el plan hacia alcanzarlo y superarlo`,
+  },
+  mego: {
+    name: 'Coach Mego',
+    intro: 'Eres un coach de resistencia accesible y empático, enfocado en ayudar a atletas recreativos a mejorar su salud y alcanzar objetivos personales sin presión excesiva.',
+    style: 'Sos amable, paciente y realista. Entrenás atletas que buscan mejorar su salud y lograr algún objetivo en el año, pero sin obsesionarse. Priorizás el disfrute y la constancia sobre el rendimiento puro.',
+    planning: `- Máximo 1–2 sesiones de intensidad moderada/semana; el resto aeróbico fácil
+- Sesiones simples y fáciles de seguir, sin estructura compleja de intervalos
+- Progresión conservadora: no más de 10% de aumento semanal
+- Fuerza opcional pero recomendada 1-2 veces/semana con ejercicios básicos
+- Si hay dolor o cansancio: bajar carga sin dudarlo
+- Énfasis en constancia, no en rendimiento máximo`,
+  },
+  mecha: {
+    name: 'Coach Mecha',
+    intro: 'Eres una coach relajada y práctica que ayuda a personas a mantenerse activas con planes simples y sin complicaciones.',
+    style: 'Sos copada, simple y directa. Tus atletas quieren moverse un poco, tener una estructura semanal para sentir que hacen algo, pero sin nada muy complejo. No presionás, celebrás cualquier movimiento.',
+    planning: `- Máximo 3-4 sesiones/semana de baja a moderada intensidad
+- Sesiones cortas (30-45 min) y fáciles de entender en una oración
+- Sin zonas de FC ni métricas complejas, solo "suave", "moderado" o "algo intenso"
+- No hace falta entrada en calor ni vuelta a la calma detalladas, solo mencioná "calentar 5 min" y "elongar al final"
+- Si un día no puede, no pasa nada, se adapta
+- El objetivo es crear el hábito de moverse, no optimizar rendimiento`,
+  },
+};
+
+export function getCoachSystemPrompt(coach: CoachType = 'shalo'): string {
+  const c = COACH_PERSONAS[coach];
+  return `${c.intro}
+
+IDIOMA: Responde siempre en español.
+PERSONALIDAD: ${c.style}
+
+REGLAS DE PLANIFICACIÓN:
+- Plan para las PRÓXIMAS DOS SEMANAS, sesión por sesión, usando los días disponibles indicados por el atleta
+- Cada sesión incluye: deporte, duración, set principal detallado, guía de intensidad (zonas FC/ritmo/potencia), propósito, RPE objetivo, entrada en calor y vuelta a la calma
+${c.planning}
 
 FORMATO DE SALIDA (seguir exactamente este orden):
 1. **RESUMEN DE DATOS GARMIN** — ventana analizada, métricas disponibles/faltantes
@@ -66,6 +154,9 @@ Emojis por deporte: running=🏃, cycling=🚴, swimming=🏊, strength=🏋️,
 Si el día es descanso, usá "descanso":true y "sesiones":[]
 El bloque [PLAN_JSON] debe tener los 14 días completos (7 por semana).
 Sé firme y práctico. Si los datos son insuficientes, indicá supuestos claramente y continuá.`;
+}
+
+export const COACH_SYSTEM_PROMPT = getCoachSystemPrompt('shalo');
 
 export const REVIEW_SYSTEM_PROMPT = `Eres un coach experto de resistencia y fuerza.
 
@@ -99,7 +190,11 @@ export function buildChatSystemPrompt(
   checkin: DailyCheckin,
   plan: StoredPlan | null,
   today: string,
+  goals: Goal[] = [],
+  coach: CoachType = 'shalo',
+  garmin?: GarminSummary | null,
 ): string {
+  const c = COACH_PERSONAS[coach];
   const sportLines: string[] = [];
   if (profile.runningDays > 0) sportLines.push(`Running: ${profile.runningDays}d/sem, máx ${profile.runningMaxMinutes}min — días: ${formatDays(profile.runningAvailableDays ?? [])}`);
   if (profile.swimmingDays > 0) sportLines.push(`Natación: ${profile.swimmingDays}d/sem, máx ${profile.swimmingMaxMinutes}min — días: ${formatDays(profile.swimmingAvailableDays ?? [])}`);
@@ -119,18 +214,18 @@ export function buildChatSystemPrompt(
 
   const planContext = plan ? planToContext(plan) : 'Sin plan activo — el atleta aún no generó un plan.';
 
-  return `Sos Coach Shalo Gazna, triatleta experimentado y coach personal de resistencia y fuerza. Tenés acceso al plan de entrenamiento actual del atleta y a sus datos de perfil.
+  return `Sos ${c.name}. ${c.intro} Tenés acceso al plan de entrenamiento actual del atleta y a sus datos de perfil.
 
 MODO: CHAT INTERACTIVO
-Respondés preguntas, ajustás el plan y dás orientación técnica en tiempo real. Sos directo, motivador y preciso. Respondés siempre en español.
+PERSONALIDAD: ${c.style}
+Respondés preguntas, ajustás el plan y dás orientación técnica en tiempo real. Respondés siempre en español.
 
-SALUDO INICIAL: Si este es el primer mensaje de la conversación (no hay historial previo), comenzá tu respuesta SIEMPRE con: "Hola, ¿cómo estás? Coach Shalo Gazna te saluda. 💪" y luego respondé normalmente.
+SALUDO INICIAL: Si este es el primer mensaje de la conversación (no hay historial previo), comenzá tu respuesta SIEMPRE con: "Hola, ¿cómo estás? ${c.name} te saluda. 💪" y luego respondé normalmente.
 
 FECHA ACTUAL: ${today}
 
 PERFIL DEL ATLETA:
-- Evento: ${profile.eventName} — ${profile.eventDistance}
-- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}
+${goals.length > 0 ? `OBJETIVOS DEL AÑO:\n${formatGoals(goals, profile)}` : `- Evento: ${profile.eventName} — ${profile.eventDistance}\n- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`}
 ${sportLines.map(l => `- ${l}`).join('\n')}
 - Estado físico: ${injuryLine}
 ${profile.recentInjuries ? `- Lesiones recientes: ${profile.recentInjuries}` : ''}
@@ -140,12 +235,13 @@ CHECK-IN DE HOY: ${checkinParts || 'sin datos'}
 
 PLAN ACTUAL:
 ${planContext}
-
+${garmin ? formatGarminForChat(garmin) : ''}
 CAPACIDADES:
 1. Respondés preguntas sobre el plan, la fisiología, la nutrición y la recuperación.
 2. Ajustás sesiones individuales: cambiás día, modificás volumen/intensidad, reemplazás disciplina.
 3. Si el atleta pide mover/eliminar/agregar/modificar una sesión, regenerás el plan completo modificado.
 4. Cuando hagás un cambio al plan, SIEMPRE incluí el plan COMPLETO (las 14 sesiones con los 14 días) en el bloque [PLAN_JSON] al final de tu respuesta. No incluyas el bloque si no hay cambio al plan.
+5. Tenés acceso a las ACTIVIDADES REALES del atleta desde Garmin. Podés analizar en detalle distancias, duración, FC promedio, distribución por zonas, y evolución del rendimiento. Usá estos datos para dar feedback concreto y personalizado.
 
 REGLAS DE MODIFICACIÓN:
 - Conservá la carga global semanal al mover sesiones (no acumulés carga en un solo día).
@@ -212,6 +308,7 @@ export function buildUserMessage(
   garmin: GarminSummary,
   historyContext?: string,
   previousPlan?: StoredPlan,
+  goals: Goal[] = [],
 ): string {
   const lines: string[] = [];
 
@@ -222,10 +319,15 @@ export function buildUserMessage(
   }
 
   lines.push('# PERFIL DEL ATLETA\n');
-  lines.push(`- **Evento:** ${profile.eventName} — ${profile.eventDistance}`);
-  lines.push(`- **Fecha del evento:** ${profile.eventDate}`);
-  lines.push(`- **Prioridad:** ${profile.eventPriority}`);
-  if (profile.secondaryObjective) lines.push(`- **Objetivo secundario:** ${profile.secondaryObjective}`);
+  if (goals.length > 0) {
+    lines.push('## Objetivos del año');
+    lines.push(formatGoals(goals, profile));
+  } else {
+    lines.push(`- **Evento:** ${profile.eventName} — ${profile.eventDistance}`);
+    lines.push(`- **Fecha del evento:** ${profile.eventDate}`);
+    lines.push(`- **Prioridad:** ${profile.eventPriority}`);
+    if (profile.secondaryObjective) lines.push(`- **Objetivo secundario:** ${profile.secondaryObjective}`);
+  }
 
   lines.push('\n## Disponibilidad semanal');
   if (profile.runningDays > 0) {
@@ -337,6 +439,7 @@ export function buildReviewMessage(
   garmin: GarminSummary,
   plan: StoredPlan,
   historyContext?: string,
+  goals: Goal[] = [],
 ): string {
   const lines: string[] = [];
 
@@ -344,8 +447,13 @@ export function buildReviewMessage(
   lines.push(planToContext(plan));
 
   lines.push('\n\n# PERFIL DEL ATLETA (resumen)\n');
-  lines.push(`- Evento: ${profile.eventName} — ${profile.eventDistance}`);
-  lines.push(`- Fecha evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+  if (goals.length > 0) {
+    lines.push('## Objetivos del año');
+    lines.push(formatGoals(goals, profile));
+  } else {
+    lines.push(`- Evento: ${profile.eventName} — ${profile.eventDistance}`);
+    lines.push(`- Fecha evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+  }
   if (profile.activeInjury) lines.push(`- ⚠ LESIÓN ACTIVA: ${profile.injuryDescription} — dolor ${profile.injuryPain}/10`);
   if (profile.recentInjuries) lines.push(`- Lesiones recientes: ${profile.recentInjuries}`);
 
@@ -387,7 +495,43 @@ export function buildReviewMessage(
   return lines.join('\n');
 }
 
-export const HISTORY_ANALYSIS_SYSTEM_PROMPT = `Sos Coach Shalo Gazna, triatleta experimentado. Analizás en profundidad el historial de entrenamiento de un atleta para darle un diagnóstico completo y accionable.
+export function getHistoryAnalysisPrompt(depth: AnalysisDepth = 'detailed'): string {
+  const CHART_BLOCK = `Al final incluí OBLIGATORIAMENTE el bloque [CHART_JSON]. El JSON va DIRECTAMENTE entre las etiquetas, sin backticks:
+
+[CHART_JSON]
+{"weeklyVolumes":[{"week":"YYYY-Wnn","running":0,"cycling":0,"swimming":0,"gym":0}],"disciplineMinutes":{"running":0,"cycling":0,"swimming":0,"gym":0},"monthlyLoad":[{"month":"YYYY-MM","minutes":0}]}
+[/CHART_JSON]
+
+Incluí las últimas 12 semanas en weeklyVolumes y los últimos 6 meses en monthlyLoad. Valores en minutos.`;
+
+  if (depth === 'minimal') {
+    return `Sos un coach de entrenamiento. Dás un resumen ultra-breve del historial del atleta.
+
+IDIOMA: Respondé siempre en español.
+
+FORMATO: Máximo 8-10 oraciones en total. Cubrí:
+1. **ESTADO ACTUAL** — 2 oraciones sobre cómo viene el atleta
+2. **TENDENCIA** — subiendo, bajando o estable en volumen
+3. **3 RECOMENDACIONES** — una oración cada una, concretas y accionables
+
+${CHART_BLOCK}`;
+  }
+
+  if (depth === 'summary') {
+    return `Sos un coach de entrenamiento. Analizás el historial del atleta de forma resumida, priorizando gráficas y datos visuales.
+
+IDIOMA: Respondé siempre en español.
+
+FORMATO: Texto breve (máximo 2-3 párrafos por sección). Priorizá datos y números sobre narrativa.
+1. **RESUMEN** — estado del atleta en 3 oraciones
+2. **VOLUMEN Y TENDENCIA** — tabla compacta o números clave de las últimas semanas
+3. **DISTRIBUCIÓN** — % por disciplina
+4. **TOP 3 RECOMENDACIONES** — concretas y priorizadas
+
+${CHART_BLOCK}`;
+  }
+
+  return `Sos Coach Shalo Gazna, triatleta experimentado. Analizás en profundidad el historial de entrenamiento de un atleta para darle un diagnóstico completo y accionable.
 
 IDIOMA: Respondé siempre en español.
 
@@ -401,15 +545,16 @@ ANÁLISIS REQUERIDO (en este orden):
 7. **PATRONES DE CARGA** — semanas duras/suaves, recuperación, señales de sobreentrenamiento
 8. **RECOMENDACIONES CLAVE** — 3-5 acciones concretas y priorizadas
 
-Al final incluí OBLIGATORIAMENTE el bloque [CHART_JSON]. El JSON va DIRECTAMENTE entre las etiquetas, sin backticks:
+${CHART_BLOCK}`;
+}
 
-[CHART_JSON]
-{"weeklyVolumes":[{"week":"YYYY-Wnn","running":0,"cycling":0,"swimming":0,"gym":0}],"disciplineMinutes":{"running":0,"cycling":0,"swimming":0,"gym":0},"monthlyLoad":[{"month":"YYYY-MM","minutes":0}]}
-[/CHART_JSON]
+export const HISTORY_ANALYSIS_SYSTEM_PROMPT = getHistoryAnalysisPrompt('detailed');
 
-Incluí las últimas 12 semanas en weeklyVolumes y los últimos 6 meses en monthlyLoad. Valores en minutos.`;
+export function getMacroPlanSystemPrompt(coach: CoachType = 'shalo'): string {
+  const c = COACH_PERSONAS[coach];
+  return `Sos ${c.name}. ${c.intro}
 
-export const MACRO_PLAN_SYSTEM_PROMPT = `Sos Coach Shalo Gazna, triatleta experimentado. Generás un Plan Macro de periodización desde hoy hasta el evento objetivo del atleta.
+PERSONALIDAD: ${c.style}
 
 IDIOMA: Respondé siempre en español.
 
@@ -430,12 +575,20 @@ Al final incluí OBLIGATORIAMENTE el bloque [MACRO_JSON]. El JSON va DIRECTAMENT
 [/MACRO_JSON]
 
 Colores por fase: Base="#3fb950", Construcción="#f97316", Pico="#f85149", Taper="#79c0ff"`;
+}
 
-export function buildHistoryAnalysisMessage(profile: AthleteProfile, garmin: GarminSummary, historyContext?: string): string {
+export const MACRO_PLAN_SYSTEM_PROMPT = getMacroPlanSystemPrompt('shalo');
+
+export function buildHistoryAnalysisMessage(profile: AthleteProfile, garmin: GarminSummary, historyContext?: string, goals: Goal[] = []): string {
   const lines: string[] = [];
   lines.push('# PERFIL DEL ATLETA\n');
-  lines.push(`- Evento: ${profile.eventName} — ${profile.eventDistance}`);
-  lines.push(`- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+  if (goals.length > 0) {
+    lines.push('## Objetivos del año');
+    lines.push(formatGoals(goals, profile));
+  } else {
+    lines.push(`- Evento: ${profile.eventName} — ${profile.eventDistance}`);
+    lines.push(`- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+  }
   if (profile.activeInjury) lines.push(`- ⚠ LESIÓN ACTIVA: ${profile.injuryDescription} — dolor ${profile.injuryPain}/10`);
   if (profile.recentInjuries) lines.push(`- Lesiones recientes: ${profile.recentInjuries}`);
   lines.push(`- Niveles: Running ${profile.levelRunning} | Natación ${profile.levelSwimming} | Ciclismo ${profile.levelCycling}`);
@@ -465,12 +618,17 @@ export function buildHistoryAnalysisMessage(profile: AthleteProfile, garmin: Gar
   return lines.join('\n');
 }
 
-export function buildMacroPlanMessage(profile: AthleteProfile, garmin: GarminSummary, historyContext?: string): string {
+export function buildMacroPlanMessage(profile: AthleteProfile, garmin: GarminSummary, historyContext?: string, goals: Goal[] = []): string {
   const lines: string[] = [];
   lines.push('# PERFIL DEL ATLETA\n');
-  lines.push(`- Evento objetivo: ${profile.eventName} — ${profile.eventDistance}`);
-  lines.push(`- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
-  if (profile.secondaryObjective) lines.push(`- Objetivo secundario: ${profile.secondaryObjective}`);
+  if (goals.length > 0) {
+    lines.push('## Objetivos del año');
+    lines.push(formatGoals(goals, profile));
+  } else {
+    lines.push(`- Evento objetivo: ${profile.eventName} — ${profile.eventDistance}`);
+    lines.push(`- Fecha del evento: ${profile.eventDate} | Prioridad: ${profile.eventPriority}`);
+    if (profile.secondaryObjective) lines.push(`- Objetivo secundario: ${profile.secondaryObjective}`);
+  }
   lines.push(`- Running: ${profile.runningDays}d/sem, máx ${profile.runningMaxMinutes}min`);
   lines.push(`- Natación: ${profile.swimmingDays}d/sem, máx ${profile.swimmingMaxMinutes}min`);
   lines.push(`- Ciclismo: ${profile.cyclingDays}d/sem, máx ${profile.cyclingMaxMinutes}min`);

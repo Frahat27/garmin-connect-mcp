@@ -1,5 +1,18 @@
 export type SportLevel = 'principiante' | 'intermedio' | 'avanzado';
 
+export type CoachType = 'shalo' | 'mego' | 'mecha';
+
+export type AnalysisDepth = 'detailed' | 'summary' | 'minimal';
+
+export type Goal = {
+  id: string;
+  eventName: string;
+  eventDistance: string;
+  eventDate: string;
+  priority: 'A' | 'B' | 'C';
+  comment: string;
+};
+
 export type AthleteProfile = {
   savedAt: string;
   eventName: string;
@@ -39,7 +52,19 @@ export type DailyCheckin = {
   muscleSoreness: number | null;
   motivation: number | null;
   sleepQuality: number | null;
+  sleepSource: 'garmin' | 'manual' | null;
   newPainOrIssue: string;
+};
+
+export type DailyLog = {
+  date: string;
+  weight: number | null;
+  sleepScore: number | null;
+  sleepSource: 'garmin' | 'manual' | null;
+  rpe: number | null;
+  soreness: number | null;
+  motivation: number | null;
+  pain: string;
 };
 
 export type ActivitySummary = {

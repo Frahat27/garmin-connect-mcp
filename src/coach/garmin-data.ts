@@ -168,6 +168,7 @@ export async function fetchGarminData(client: GarminClient): Promise<GarminSumma
 
   const [
     rawActivities,
+    rawLatestActivities,
     trainingStatus,
     trainingReadiness,
     hrvData,
@@ -180,6 +181,7 @@ export async function fetchGarminData(client: GarminClient): Promise<GarminSumma
     bodyCompositionRaw,
   ] = await Promise.all([
     safe('activities_60d', () => client.getActivitiesByDate(dateStr(60), today)),
+    safe('activities_latest', () => client.getActivities(0, 10)),
     safe('training_status', () => client.getTrainingStatus(today)),
     safe('training_readiness', () => client.getTrainingReadiness(today)),
     safe('hrv', () => client.getHRV(today)),
@@ -197,9 +199,16 @@ export async function fetchGarminData(client: GarminClient): Promise<GarminSumma
     last7Days.map(d => safe(`rhr_${d}`, () => client.getRestingHeartRate(d))),
   );
 
-  const activities: ActivitySummary[] = Array.isArray(rawActivities)
-    ? (rawActivities as Record<string, unknown>[]).map(summarizeActivity)
-    : [];
+  const byDateList = Array.isArray(rawActivities) ? (rawActivities as Record<string, unknown>[]) : [];
+  const latestList = Array.isArray(rawLatestActivities) ? (rawLatestActivities as Record<string, unknown>[]) : [];
+  const seenIds = new Set(byDateList.map(a => a.activityId ?? a.startTimeLocal));
+  const merged = [...byDateList];
+  for (const a of latestList) {
+    const key = a.activityId ?? a.startTimeLocal;
+    if (!seenIds.has(key)) { merged.push(a); seenIds.add(key); }
+  }
+  merged.sort((a, b) => String(a.startTimeLocal ?? '').localeCompare(String(b.startTimeLocal ?? '')));
+  const activities: ActivitySummary[] = merged.map(summarizeActivity);
 
   const weeklyVolumes = computeWeeklyVolumes(activities);
 

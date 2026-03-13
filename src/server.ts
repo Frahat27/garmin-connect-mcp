@@ -7,12 +7,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GarminClient } from './client';
 import {
   fetchGarminData, buildUserMessage, buildReviewMessage, buildChatSystemPrompt,
-  COACH_SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT,
-  HISTORY_ANALYSIS_SYSTEM_PROMPT, MACRO_PLAN_SYSTEM_PROMPT,
+  REVIEW_SYSTEM_PROMPT,
+  getCoachSystemPrompt, getMacroPlanSystemPrompt, getHistoryAnalysisPrompt,
   buildHistoryAnalysisMessage, buildMacroPlanMessage,
   generateHistoryContext, getPlanStatus,
 } from './coach/index';
-import type { AthleteProfile, DailyCheckin } from './coach/index';
+import type { AthleteProfile, DailyCheckin, Goal, DailyLog, CoachType, AnalysisDepth } from './coach/index';
 import {
   initDb, loadAllSessions, upsertSession, touchSession, clearSession,
   dbGetProfile, dbSaveProfile,
@@ -20,6 +20,8 @@ import {
   dbGetChatHistory, dbSaveChatHistory, dbDeleteChatHistory,
   dbHistoryExists, dbGetHistoryCache, dbSaveHistoryCache,
   dbGetAnalysis, dbSaveAnalysis,
+  dbGetGoals, dbSaveGoal, dbUpdateGoal, dbDeleteGoal,
+  dbGetDailyLogs, dbSaveDailyLog,
   populateTokenDir, saveTokensFromDir,
 } from './db';
 import type { DbSession } from './db';
@@ -262,6 +264,157 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (method === 'GET' && url === '/api/goals') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const goals = await dbGetGoals(session.userId);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(goals));
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/goals') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const body = JSON.parse(await readBody(req)) as Omit<Goal, 'id'>;
+    if (!body.eventName) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'eventName es requerido.' }));
+      return;
+    }
+    const goal = await dbSaveGoal(session.userId, body);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(goal));
+    return;
+  }
+
+  if (method === 'PUT' && url?.startsWith('/api/goals/')) {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const goalId = url.slice('/api/goals/'.length);
+    const updates = JSON.parse(await readBody(req)) as Partial<Omit<Goal, 'id'>>;
+    await dbUpdateGoal(goalId, updates);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (method === 'DELETE' && url?.startsWith('/api/goals/')) {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const goalId = url.slice('/api/goals/'.length);
+    await dbDeleteGoal(goalId);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (method === 'GET' && url === '/api/daily-logs') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const logs = await dbGetDailyLogs(session.userId);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(logs));
+    return;
+  }
+
+  if (method === 'POST' && url === '/api/daily-logs') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    const log = JSON.parse(await readBody(req)) as DailyLog;
+    if (!log.date) log.date = new Date().toISOString().split('T')[0];
+    await dbSaveDailyLog(session.userId, log);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (method === 'GET' && url === '/api/garmin-sleep') {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const data = await withGarmin(session, (client) => client.getSleepData(today)) as Record<string, unknown> | null;
+      let score: number | null = null;
+      if (data) {
+        const raw = (data.overallSleepScore as Record<string, unknown>)?.value ?? data.overallSleepScore;
+        if (typeof raw === 'number') score = raw;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ score }));
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ score: null }));
+    }
+    return;
+  }
+
+  if (method === 'GET' && url?.startsWith('/api/metrics-evolution')) {
+    const session = getSession(req);
+    if (!session) { res.writeHead(401); res.end(); return; }
+    try {
+      const params = new URLSearchParams(url.split('?')[1] ?? '');
+      const days = Math.min(parseInt(params.get('days') ?? '90'), 180);
+      const end = new Date().toISOString().split('T')[0];
+      const start = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+
+      const result = await withGarmin(session, async (client) => {
+        const [vo2maxRange, racePreds, activities] = await Promise.all([
+          client.getVO2MaxRange(start, end).catch(() => []),
+          client.getRacePredictions(start, end, 'daily').catch(() => null),
+          client.getActivities(0, 200).catch(() => []),
+        ]);
+
+        const vo2data = (vo2maxRange as { date: string; data: unknown }[]).map(item => {
+          let val: number | null = null;
+          if (item.data && typeof item.data === 'object') {
+            const d = item.data as Record<string, unknown>;
+            if (typeof d.vo2Max === 'number') val = d.vo2Max;
+            else {
+              const g = d.generic as Record<string, unknown> | undefined;
+              if (g && typeof g.vo2MaxValue === 'number') val = g.vo2MaxValue;
+            }
+          }
+          return { date: item.date, value: val };
+        }).filter(v => v.value !== null);
+
+        let raceData: { date: string; five: number | null; ten: number | null; half: number | null; full: number | null }[] = [];
+        if (Array.isArray(racePreds)) {
+          raceData = racePreds.map((r: Record<string, unknown>) => ({
+            date: r.calendarDate as string ?? '',
+            five: typeof r.time5K === 'number' ? r.time5K : null,
+            ten: typeof r.time10K === 'number' ? r.time10K : null,
+            half: typeof r.timeHalf === 'number' ? r.timeHalf : null,
+            full: typeof r.timeFull === 'number' ? r.timeFull : null,
+          })).filter((r: { date: string }) => r.date >= start);
+        }
+
+        const actHR = (Array.isArray(activities) ? activities : [])
+          .filter((a: Record<string, unknown>) => {
+            const d = a.startTimeLocal as string ?? '';
+            return d >= start && typeof a.averageHR === 'number';
+          })
+          .map((a: Record<string, unknown>) => ({
+            date: (a.startTimeLocal as string).split(' ')[0],
+            type: a.activityType?.typeKey ?? a.activityName ?? 'unknown',
+            avgHR: a.averageHR as number,
+            maxHR: typeof a.maxHR === 'number' ? a.maxHR : null,
+            name: a.activityName as string ?? '',
+          }))
+          .reverse();
+
+        return { vo2max: vo2data, racePredictions: raceData, activityHR: actHR };
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (e as Error).message }));
+    }
+    return;
+  }
+
   const makeSSE = (): (type: string, data?: Record<string, unknown>) => void => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -277,7 +430,7 @@ const server = createServer(async (req, res) => {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
 
-      const { profile, checkin } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin };
+      const { profile, checkin, coachType } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; checkin: DailyCheckin; coachType?: CoachType };
       await dbSaveProfile(session.userId, { ...profile, savedAt: new Date().toISOString() } as AthleteProfile);
 
       send('status', { message: 'Conectando a Garmin Connect...' });
@@ -285,11 +438,12 @@ const server = createServer(async (req, res) => {
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Generando plan...` });
 
       const historyContext = await dbGetHistoryCache(session.userId) ?? undefined;
+      const goals = await dbGetGoals(session.userId);
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
-        system: COACH_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData, historyContext) }],
+        system: getCoachSystemPrompt(coachType ?? 'shalo'),
+        messages: [{ role: 'user', content: buildUserMessage(profile, checkin, garminData, historyContext, undefined, goals) }],
       });
 
       let fullText = '';
@@ -334,11 +488,12 @@ const server = createServer(async (req, res) => {
       send('status', { message: `✅ ${garminData.activities.length} actividades cargadas. Cruzando plan vs real...` });
 
       const historyContext = await dbGetHistoryCache(session.userId) ?? undefined;
+      const goals = await dbGetGoals(session.userId);
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
         system: REVIEW_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildReviewMessage(profile, checkin, garminData, currentPlan, historyContext) }],
+        messages: [{ role: 'user', content: buildReviewMessage(profile, checkin, garminData, currentPlan, historyContext, goals) }],
       });
 
       let fullText = '';
@@ -369,7 +524,7 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
+      const { profile, analysisDepth } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; analysisDepth?: AnalysisDepth };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
       const garminData = await withGarmin(session, (client) => fetchGarminData(client));
@@ -378,9 +533,9 @@ const server = createServer(async (req, res) => {
       const historyContext = await dbGetHistoryCache(session.userId) ?? undefined;
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
-        max_tokens: 16000,
-        system: HISTORY_ANALYSIS_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildHistoryAnalysisMessage(profile, garminData, historyContext) }],
+        max_tokens: analysisDepth === 'minimal' ? 4000 : analysisDepth === 'summary' ? 8000 : 16000,
+        system: getHistoryAnalysisPrompt(analysisDepth ?? 'detailed'),
+        messages: [{ role: 'user', content: buildHistoryAnalysisMessage(profile, garminData, historyContext, await dbGetGoals(session.userId)) }],
       });
 
       let fullText = '';
@@ -400,7 +555,7 @@ const server = createServer(async (req, res) => {
     try {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
-      const { profile } = JSON.parse(await readBody(req)) as { profile: AthleteProfile };
+      const { profile, coachType } = JSON.parse(await readBody(req)) as { profile: AthleteProfile; coachType?: CoachType };
 
       send('status', { message: 'Conectando a Garmin Connect...' });
       const garminData = await withGarmin(session, (client) => fetchGarminData(client));
@@ -410,8 +565,8 @@ const server = createServer(async (req, res) => {
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',
         max_tokens: 16000,
-        system: MACRO_PLAN_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildMacroPlanMessage(profile, garminData, historyContext) }],
+        system: getMacroPlanSystemPrompt(coachType ?? 'shalo'),
+        messages: [{ role: 'user', content: buildMacroPlanMessage(profile, garminData, historyContext, await dbGetGoals(session.userId)) }],
       });
 
       let fullText = '';
@@ -432,15 +587,21 @@ const server = createServer(async (req, res) => {
       const session = getSession(req);
       if (!session) { send('error', { message: 'Sin sesión activa.' }); res.end(); return; }
 
-      const { messages, profile, checkin } = JSON.parse(await readBody(req)) as {
+      const { messages, profile, checkin, coachType } = JSON.parse(await readBody(req)) as {
         messages: Array<{ role: 'user' | 'assistant'; content: string | unknown[] }>;
         profile: AthleteProfile;
         checkin: DailyCheckin;
+        coachType?: CoachType;
       };
 
       const today = new Date().toISOString().split('T')[0];
-      const currentPlan = await dbGetPlan(session.userId);
-      const systemPrompt = buildChatSystemPrompt(profile, checkin, currentPlan, today);
+      send('status', { message: 'Cargando actividades de Garmin...' });
+      const [currentPlan, goals, garminData] = await Promise.all([
+        dbGetPlan(session.userId),
+        dbGetGoals(session.userId),
+        withGarmin(session, (client) => fetchGarminData(client)).catch(() => null),
+      ]);
+      const systemPrompt = buildChatSystemPrompt(profile, checkin, currentPlan, today, goals, coachType ?? 'shalo', garminData);
 
       const stream = new Anthropic({ apiKey: session.anthropicKey }).messages.stream({
         model: 'claude-opus-4-6',

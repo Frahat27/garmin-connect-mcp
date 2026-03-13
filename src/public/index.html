@@ -326,6 +326,38 @@ input[type=number]{text-align:center;padding:8px 4px}
 .modal-section.cooldown .modal-section-hdr{background:rgba(88,166,255,.08);color:#79c0ff}
 .modal-section.notes{border-color:var(--border)}
 .modal-section.notes .modal-section-hdr{background:var(--surface);color:var(--muted)}
+
+.sidebar-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
+.sidebar-tab{flex:1;padding:10px 2px;background:none;border:none;border-bottom:2px solid transparent;
+  color:var(--muted);cursor:pointer;font-size:11px;font-weight:600;text-align:center;
+  -webkit-tap-highlight-color:transparent;transition:color .15s,border-color .15s}
+.sidebar-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.sidebar-tab-content{display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;flex-direction:column}
+.sidebar-tab-content.active{display:flex}
+.goal-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;position:relative}
+.goal-card .goal-prio{display:inline-block;width:22px;height:22px;border-radius:50%;text-align:center;
+  line-height:22px;font-size:11px;font-weight:700;flex-shrink:0}
+.goal-prio-A{background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent)}
+.goal-prio-B{background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+.goal-prio-C{background:var(--surface);color:var(--muted);border:1px solid var(--border);opacity:.6}
+.goal-delete{position:absolute;top:8px;right:8px;background:none;border:none;color:var(--muted);
+  cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px;-webkit-tap-highlight-color:transparent}
+.goal-delete:hover{color:var(--red);background:rgba(248,81,73,.1)}
+.garmin-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;
+  background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);color:var(--green);font-size:13px;font-weight:600}
+.sparkline-wrap{height:60px;margin:8px 0}
+.sparkline-wrap canvas{width:100%!important;height:60px!important}
+.weight-link{background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;
+  font-weight:600;padding:0;-webkit-tap-highlight-color:transparent}
+.weight-link:hover{text-decoration:underline}
+.coach-selector{display:flex;flex-direction:column;gap:6px}
+.coach-btn{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;
+  cursor:pointer;text-align:left;transition:all .15s;-webkit-tap-highlight-color:transparent}
+.coach-btn:hover{border-color:var(--accent)}
+.coach-btn.active{background:var(--accent-dim);border-color:var(--accent)}
+.coach-name{font-size:14px;font-weight:700;margin-bottom:2px}
+.coach-btn.active .coach-name{color:var(--accent)}
+.coach-desc{font-size:11px;color:var(--muted);line-height:1.4}
 </style>
 <script>
 (function(){
@@ -401,6 +433,26 @@ input[type=number]{text-align:center;padding:8px 4px}
   </div>
 </div>
 
+<!-- WEIGHT MODAL -->
+<div class="modal-overlay hidden" id="weightModal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeWeightModal()">✕</button>
+    <div style="font-size:19px;font-weight:700;margin-bottom:14px">Evolución de peso</div>
+    <div style="min-height:220px"><canvas id="chartWeightFull"></canvas></div>
+  </div>
+</div>
+
+<!-- TYPE A CONFLICT MODAL -->
+<div class="overlay hidden" id="typeAModal">
+  <div class="overlay-box">
+    <div class="overlay-icon">⚠️</div>
+    <h2>Ya tenés 2 objetivos tipo A</h2>
+    <p>Elegí cuál bajar a prioridad B para agregar el nuevo.</p>
+    <div id="typeAList" style="text-align:left;margin-bottom:16px"></div>
+    <button class="btn btn-primary btn-full" onclick="confirmTypeADowngrade()">Confirmar</button>
+  </div>
+</div>
+
 <div class="app">
 
   <!-- HEADER -->
@@ -421,173 +473,255 @@ input[type=number]{text-align:center;padding:8px 4px}
         <div class="plan-dot" id="planDot"></div>
         <span class="plan-banner-text" id="planBannerText"></span>
       </div>
-      <div class="screen-body">
 
-        <div class="card" style="border-color:rgba(249,115,22,.35)">
-          <div class="card-title" style="color:var(--accent)">📊 Check-in del día</div>
-          <div class="row2">
-            <div class="field"><label>Peso hoy (kg)</label><input type="number" id="weight" step="0.1" placeholder="72.5"></div>
-            <div class="field"><label>RPE último entrenamiento</label>
-              <div class="range-row"><input type="range" min="0" max="10" value="7" id="rpeLastSession" oninput="document.getElementById('rpev').textContent=this.value"><span class="rval" id="rpev">7</span></div>
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" onclick="showSidebarTab('objetivos')">🎯 Objetivos</button>
+        <button class="sidebar-tab" onclick="showSidebarTab('config')">⚙ Config</button>
+        <button class="sidebar-tab" onclick="showSidebarTab('estado')">📊 Estado</button>
+        <button class="sidebar-tab" onclick="showSidebarTab('evolucion')">📈 Evolución</button>
+      </div>
+
+      <div class="sidebar-tab-content active" id="sidebarObjetivos">
+        <div class="screen-body">
+          <div class="card">
+            <div class="card-title">🎯 Nuevo objetivo</div>
+            <div class="field"><label>Nombre del evento</label><input type="text" id="newGoalName" placeholder="Ej: Maratón Buenos Aires 2026"></div>
+            <div class="field"><label>Disciplina y distancia</label><input type="text" id="newGoalDistance" placeholder="Ej: Ironman 70.3, Maratón 42km"></div>
+            <div class="row2">
+              <div class="field"><label>Fecha del evento</label><input type="date" id="newGoalDate"></div>
+              <div class="field"><label>Prioridad</label>
+                <div class="prio-group">
+                  <button type="button" class="prio-btn new-goal-prio-btn" data-p="A" onclick="setNewGoalPrio('A')">A</button>
+                  <button type="button" class="prio-btn new-goal-prio-btn active" data-p="B" onclick="setNewGoalPrio('B')">B</button>
+                  <button type="button" class="prio-btn new-goal-prio-btn" data-p="C" onclick="setNewGoalPrio('C')">C</button>
+                </div>
+              </div>
+            </div>
+            <div class="field"><label>Comentario / objetivo (opcional)</label><input type="text" id="newGoalComment" placeholder="Ej: Bajar 5K a sub-20"></div>
+            <button class="btn btn-primary btn-full" style="margin-top:8px" onclick="addGoal()">+ Agregar Objetivo</button>
+          </div>
+          <div id="goalsList" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-tab-content" id="sidebarConfig">
+        <div class="screen-body">
+          <div class="card" style="border-color:rgba(249,115,22,.35)">
+            <div class="card-title" style="color:var(--accent)">🏋️ Tu Coach</div>
+            <div class="coach-selector">
+              <button class="coach-btn active" data-coach="shalo" onclick="setCoachType('shalo')">
+                <div class="coach-name">💪 Shalo</div>
+                <div class="coach-desc">Exigente. Para atletas ambiciosos que buscan mejorar.</div>
+              </button>
+              <button class="coach-btn" data-coach="mego" onclick="setCoachType('mego')">
+                <div class="coach-name">🌿 Mego</div>
+                <div class="coach-desc">Accesible. Para quienes buscan salud y algún objetivo.</div>
+              </button>
+              <button class="coach-btn" data-coach="mecha" onclick="setCoachType('mecha')">
+                <div class="coach-name">😊 Mecha</div>
+                <div class="coach-desc">Relajada. Para moverse un poco sin complicarse.</div>
+              </button>
             </div>
           </div>
-          <div class="row2">
+          <div class="card">
+            <div class="card-title">📅 Disponibilidad semanal</div>
+            <div class="sport-block">
+              <div class="sport-row">
+                <span class="sport-lbl">🏃 Running</span>
+                <div class="slider-wrap"><input type="range" min="0" max="7" value="3" id="runningDays" oninput="sv('runningDays','rvd')"><span class="sval" id="rvd">3</span><span class="sunit">d</span></div>
+                <input type="number" id="runningMaxMinutes" value="60" min="15" max="300" placeholder="min">
+              </div>
+              <div class="day-picker" id="dp-running">
+                <button class="day-btn" onclick="toggleDay('running',0)">L</button>
+                <button class="day-btn" onclick="toggleDay('running',1)">M</button>
+                <button class="day-btn" onclick="toggleDay('running',2)">M</button>
+                <button class="day-btn" onclick="toggleDay('running',3)">J</button>
+                <button class="day-btn" onclick="toggleDay('running',4)">V</button>
+                <button class="day-btn" onclick="toggleDay('running',5)">S</button>
+                <button class="day-btn" onclick="toggleDay('running',6)">D</button>
+              </div>
+            </div>
+            <div class="sport-block">
+              <div class="sport-row">
+                <span class="sport-lbl">🏊 Natación</span>
+                <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="swimmingDays" oninput="sv('swimmingDays','svd')"><span class="sval" id="svd">2</span><span class="sunit">d</span></div>
+                <input type="number" id="swimmingMaxMinutes" value="60" min="15" max="180" placeholder="min">
+              </div>
+              <div class="day-picker" id="dp-swimming">
+                <button class="day-btn" onclick="toggleDay('swimming',0)">L</button>
+                <button class="day-btn" onclick="toggleDay('swimming',1)">M</button>
+                <button class="day-btn" onclick="toggleDay('swimming',2)">M</button>
+                <button class="day-btn" onclick="toggleDay('swimming',3)">J</button>
+                <button class="day-btn" onclick="toggleDay('swimming',4)">V</button>
+                <button class="day-btn" onclick="toggleDay('swimming',5)">S</button>
+                <button class="day-btn" onclick="toggleDay('swimming',6)">D</button>
+              </div>
+            </div>
+            <div class="sport-block">
+              <div class="sport-row">
+                <span class="sport-lbl">🚴 Ciclismo</span>
+                <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="cyclingDays" oninput="sv('cyclingDays','cvd')"><span class="sval" id="cvd">2</span><span class="sunit">d</span></div>
+                <input type="number" id="cyclingMaxMinutes" value="90" min="15" max="360" placeholder="min">
+              </div>
+              <div class="day-picker" id="dp-cycling">
+                <button class="day-btn" onclick="toggleDay('cycling',0)">L</button>
+                <button class="day-btn" onclick="toggleDay('cycling',1)">M</button>
+                <button class="day-btn" onclick="toggleDay('cycling',2)">M</button>
+                <button class="day-btn" onclick="toggleDay('cycling',3)">J</button>
+                <button class="day-btn" onclick="toggleDay('cycling',4)">V</button>
+                <button class="day-btn" onclick="toggleDay('cycling',5)">S</button>
+                <button class="day-btn" onclick="toggleDay('cycling',6)">D</button>
+              </div>
+            </div>
+            <div class="sport-block">
+              <div class="sport-row">
+                <span class="sport-lbl">🏋️ Gimnasio</span>
+                <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="gymDays" oninput="sv('gymDays','gvd')"><span class="sval" id="gvd">2</span><span class="sunit">d</span></div>
+                <input type="number" id="gymMaxMinutes" value="60" min="20" max="120" placeholder="min">
+              </div>
+              <div class="day-picker" id="dp-gym">
+                <button class="day-btn" onclick="toggleDay('gym',0)">L</button>
+                <button class="day-btn" onclick="toggleDay('gym',1)">M</button>
+                <button class="day-btn" onclick="toggleDay('gym',2)">M</button>
+                <button class="day-btn" onclick="toggleDay('gym',3)">J</button>
+                <button class="day-btn" onclick="toggleDay('gym',4)">V</button>
+                <button class="day-btn" onclick="toggleDay('gym',5)">S</button>
+                <button class="day-btn" onclick="toggleDay('gym',6)">D</button>
+              </div>
+            </div>
+            <div class="field" style="margin-top:10px">
+              <label>Días inamovibles sin entrenamiento</label>
+              <input type="text" id="restDays" placeholder='"domingo" o "ninguno"'>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">🩺 Estado físico</div>
+            <div class="check-field"><input type="checkbox" id="activeInjury" onchange="toggleInjury()"><label for="activeInjury">Tengo una lesión o dolor activo</label></div>
+            <div class="cond" id="injuryFields">
+              <div class="field" style="margin-top:8px"><label>¿Dónde y qué tipo?</label><input type="text" id="injuryDescription" placeholder="Ej: Rodilla derecha, tendinitis rotuliana"></div>
+              <div class="field"><label>Intensidad del dolor</label>
+                <div class="range-row"><input type="range" min="0" max="10" value="3" id="injuryPain" oninput="document.getElementById('ipv').textContent=this.value"><span class="rval" id="ipv">3</span><span class="rsuffix">/10</span></div>
+              </div>
+            </div>
+            <div class="field" style="margin-top:8px"><label>Lesiones recientes (opcional)</label><input type="text" id="recentInjuries" placeholder="Ej: Fractura por estrés en tibia (dic 2025)"></div>
+            <div class="field" style="margin-top:10px">
+              <label>Nivel en running</label>
+              <div class="level-group" data-f="levelRunning">
+                <button type="button" class="level-btn" onclick="setLvl('levelRunning','principiante')">Principiante</button>
+                <button type="button" class="level-btn active" onclick="setLvl('levelRunning','intermedio')">Intermedio</button>
+                <button type="button" class="level-btn" onclick="setLvl('levelRunning','avanzado')">Avanzado</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Nivel en natación</label>
+              <div class="level-group" data-f="levelSwimming">
+                <button type="button" class="level-btn" onclick="setLvl('levelSwimming','principiante')">Principiante</button>
+                <button type="button" class="level-btn active" onclick="setLvl('levelSwimming','intermedio')">Intermedio</button>
+                <button type="button" class="level-btn" onclick="setLvl('levelSwimming','avanzado')">Avanzado</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Nivel en ciclismo</label>
+              <div class="level-group" data-f="levelCycling">
+                <button type="button" class="level-btn" onclick="setLvl('levelCycling','principiante')">Principiante</button>
+                <button type="button" class="level-btn active" onclick="setLvl('levelCycling','intermedio')">Intermedio</button>
+                <button type="button" class="level-btn" onclick="setLvl('levelCycling','avanzado')">Avanzado</button>
+              </div>
+            </div>
+            <div class="field" style="margin-top:10px">
+              <div class="check-field"><input type="checkbox" id="weightGoal"><label for="weightGoal">Tengo objetivo de composición corporal</label></div>
+              <div class="check-field"><input type="checkbox" id="logsAllActivities" checked><label for="logsAllActivities">Logeo todas mis actividades en Garmin</label></div>
+            </div>
+            <div class="field"><label>Disciplinas sin loguear</label><input type="text" id="missingDisciplines" placeholder="Ej: natación en pileta"></div>
+          </div>
+
+          <button class="btn btn-primary btn-full" id="btnSaveProfile" onclick="saveProfileOnly()">💾 Guardar Config</button>
+        </div>
+      </div>
+
+      <div class="sidebar-tab-content" id="sidebarEstado">
+        <div class="screen-body">
+          <div class="card">
+            <div class="card-title">😴 Sueño</div>
+            <div id="sleepGarminBadge" style="display:none"><span class="garmin-badge">Garmin: Score <span id="garminSleepScore">--</span>/100</span></div>
+            <div id="sleepManualWrap">
+              <label>Calidad de sueño (manual)</label>
+              <div class="range-row"><input type="range" min="1" max="10" value="7" id="sleepQuality" oninput="document.getElementById('slpv').textContent=this.value"><span class="rval" id="slpv">7</span><span class="rsuffix">/10</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">⚖ Peso</div>
+            <div class="field"><label>Peso hoy (kg)</label><input type="number" id="weight" step="0.1" placeholder="72.5"></div>
+            <div class="sparkline-wrap"><canvas id="chartWeightSparkline"></canvas></div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <button class="weight-link" onclick="showWeightModal()">Ver evolución</button>
+              <span id="lastWeightInfo" style="font-size:11px;color:var(--muted)"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">🫀 Sensaciones</div>
+            <div class="field"><label>RPE último entrenamiento</label>
+              <div class="range-row"><input type="range" min="0" max="10" value="7" id="rpeLastSession" oninput="document.getElementById('rpev').textContent=this.value"><span class="rval" id="rpev">7</span><span class="rsuffix">/10</span></div>
+            </div>
             <div class="field"><label>Soreness muscular</label>
-              <div class="range-row"><input type="range" min="0" max="10" value="3" id="muscleSoreness" oninput="document.getElementById('sorv').textContent=this.value"><span class="rval" id="sorv">3</span></div>
+              <div class="range-row"><input type="range" min="0" max="10" value="3" id="muscleSoreness" oninput="document.getElementById('sorv').textContent=this.value"><span class="rval" id="sorv">3</span><span class="rsuffix">/10</span></div>
             </div>
             <div class="field"><label>Motivación hoy</label>
-              <div class="range-row"><input type="range" min="0" max="10" value="7" id="motivation" oninput="document.getElementById('motv').textContent=this.value"><span class="rval" id="motv">7</span></div>
-            </div>
-          </div>
-          <div class="row2">
-            <div class="field"><label>Calidad de sueño</label>
-              <div class="range-row"><input type="range" min="0" max="10" value="7" id="sleepQuality" oninput="document.getElementById('slpv').textContent=this.value"><span class="rval" id="slpv">7</span></div>
+              <div class="range-row"><input type="range" min="0" max="10" value="7" id="motivation" oninput="document.getElementById('motv').textContent=this.value"><span class="rval" id="motv">7</span><span class="rsuffix">/10</span></div>
             </div>
             <div class="field"><label>Dolor / molestia hoy</label><input type="text" id="newPainOrIssue" placeholder="Ej: pantorrilla"></div>
           </div>
-        </div>
 
-        <div class="card">
-          <div class="card-title">🎯 Objetivo</div>
-          <div class="field"><label>Nombre del evento</label><input type="text" id="eventName" placeholder="Ej: Maratón Buenos Aires 2026"></div>
-          <div class="field"><label>Disciplina y distancia</label><input type="text" id="eventDistance" placeholder="Ej: Ironman 70.3, Maratón 42km"></div>
-          <div class="row2">
-            <div class="field"><label>Fecha del evento</label><input type="date" id="eventDate"></div>
-            <div class="field"><label>Prioridad</label>
-              <div class="prio-group">
-                <button type="button" class="prio-btn active" data-p="A" onclick="setPrio('A')">A</button>
-                <button type="button" class="prio-btn" data-p="B" onclick="setPrio('B')">B</button>
-                <button type="button" class="prio-btn" data-p="C" onclick="setPrio('C')">C</button>
-              </div>
-            </div>
-          </div>
-          <div class="field"><label>Objetivo secundario (opcional)</label><input type="text" id="secondaryObjective" placeholder="Ej: Bajar 5K a sub-20"></div>
+          <button class="btn btn-primary btn-full" onclick="saveDailyLog()">💾 Guardar estado del día</button>
         </div>
-
-        <div class="card">
-          <div class="card-title">📅 Disponibilidad semanal</div>
-          <div class="sport-block">
-            <div class="sport-row">
-              <span class="sport-lbl">🏃 Running</span>
-              <div class="slider-wrap"><input type="range" min="0" max="7" value="3" id="runningDays" oninput="sv('runningDays','rvd')"><span class="sval" id="rvd">3</span><span class="sunit">d</span></div>
-              <input type="number" id="runningMaxMinutes" value="60" min="15" max="300" placeholder="min">
-            </div>
-            <div class="day-picker" id="dp-running">
-              <button class="day-btn" onclick="toggleDay('running',0)">L</button>
-              <button class="day-btn" onclick="toggleDay('running',1)">M</button>
-              <button class="day-btn" onclick="toggleDay('running',2)">M</button>
-              <button class="day-btn" onclick="toggleDay('running',3)">J</button>
-              <button class="day-btn" onclick="toggleDay('running',4)">V</button>
-              <button class="day-btn" onclick="toggleDay('running',5)">S</button>
-              <button class="day-btn" onclick="toggleDay('running',6)">D</button>
-            </div>
-          </div>
-          <div class="sport-block">
-            <div class="sport-row">
-              <span class="sport-lbl">🏊 Natación</span>
-              <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="swimmingDays" oninput="sv('swimmingDays','svd')"><span class="sval" id="svd">2</span><span class="sunit">d</span></div>
-              <input type="number" id="swimmingMaxMinutes" value="60" min="15" max="180" placeholder="min">
-            </div>
-            <div class="day-picker" id="dp-swimming">
-              <button class="day-btn" onclick="toggleDay('swimming',0)">L</button>
-              <button class="day-btn" onclick="toggleDay('swimming',1)">M</button>
-              <button class="day-btn" onclick="toggleDay('swimming',2)">M</button>
-              <button class="day-btn" onclick="toggleDay('swimming',3)">J</button>
-              <button class="day-btn" onclick="toggleDay('swimming',4)">V</button>
-              <button class="day-btn" onclick="toggleDay('swimming',5)">S</button>
-              <button class="day-btn" onclick="toggleDay('swimming',6)">D</button>
-            </div>
-          </div>
-          <div class="sport-block">
-            <div class="sport-row">
-              <span class="sport-lbl">🚴 Ciclismo</span>
-              <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="cyclingDays" oninput="sv('cyclingDays','cvd')"><span class="sval" id="cvd">2</span><span class="sunit">d</span></div>
-              <input type="number" id="cyclingMaxMinutes" value="90" min="15" max="360" placeholder="min">
-            </div>
-            <div class="day-picker" id="dp-cycling">
-              <button class="day-btn" onclick="toggleDay('cycling',0)">L</button>
-              <button class="day-btn" onclick="toggleDay('cycling',1)">M</button>
-              <button class="day-btn" onclick="toggleDay('cycling',2)">M</button>
-              <button class="day-btn" onclick="toggleDay('cycling',3)">J</button>
-              <button class="day-btn" onclick="toggleDay('cycling',4)">V</button>
-              <button class="day-btn" onclick="toggleDay('cycling',5)">S</button>
-              <button class="day-btn" onclick="toggleDay('cycling',6)">D</button>
-            </div>
-          </div>
-          <div class="sport-block">
-            <div class="sport-row">
-              <span class="sport-lbl">🏋️ Gimnasio</span>
-              <div class="slider-wrap"><input type="range" min="0" max="7" value="2" id="gymDays" oninput="sv('gymDays','gvd')"><span class="sval" id="gvd">2</span><span class="sunit">d</span></div>
-              <input type="number" id="gymMaxMinutes" value="60" min="20" max="120" placeholder="min">
-            </div>
-            <div class="day-picker" id="dp-gym">
-              <button class="day-btn" onclick="toggleDay('gym',0)">L</button>
-              <button class="day-btn" onclick="toggleDay('gym',1)">M</button>
-              <button class="day-btn" onclick="toggleDay('gym',2)">M</button>
-              <button class="day-btn" onclick="toggleDay('gym',3)">J</button>
-              <button class="day-btn" onclick="toggleDay('gym',4)">V</button>
-              <button class="day-btn" onclick="toggleDay('gym',5)">S</button>
-              <button class="day-btn" onclick="toggleDay('gym',6)">D</button>
-            </div>
-          </div>
-          <div class="field" style="margin-top:10px">
-            <label>Días inamovibles sin entrenamiento</label>
-            <input type="text" id="restDays" placeholder='"domingo" o "ninguno"'>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">🩺 Estado físico</div>
-          <div class="check-field"><input type="checkbox" id="activeInjury" onchange="toggleInjury()"><label for="activeInjury">Tengo una lesión o dolor activo</label></div>
-          <div class="cond" id="injuryFields">
-            <div class="field" style="margin-top:8px"><label>¿Dónde y qué tipo?</label><input type="text" id="injuryDescription" placeholder="Ej: Rodilla derecha, tendinitis rotuliana"></div>
-            <div class="field"><label>Intensidad del dolor</label>
-              <div class="range-row"><input type="range" min="0" max="10" value="3" id="injuryPain" oninput="document.getElementById('ipv').textContent=this.value"><span class="rval" id="ipv">3</span><span class="rsuffix">/10</span></div>
-            </div>
-          </div>
-          <div class="field" style="margin-top:8px"><label>Lesiones recientes (opcional)</label><input type="text" id="recentInjuries" placeholder="Ej: Fractura por estrés en tibia (dic 2025)"></div>
-          <div class="field" style="margin-top:10px">
-            <label>Nivel en running</label>
-            <div class="level-group" data-f="levelRunning">
-              <button type="button" class="level-btn" onclick="setLvl('levelRunning','principiante')">Principiante</button>
-              <button type="button" class="level-btn active" onclick="setLvl('levelRunning','intermedio')">Intermedio</button>
-              <button type="button" class="level-btn" onclick="setLvl('levelRunning','avanzado')">Avanzado</button>
-            </div>
-          </div>
-          <div class="field">
-            <label>Nivel en natación</label>
-            <div class="level-group" data-f="levelSwimming">
-              <button type="button" class="level-btn" onclick="setLvl('levelSwimming','principiante')">Principiante</button>
-              <button type="button" class="level-btn active" onclick="setLvl('levelSwimming','intermedio')">Intermedio</button>
-              <button type="button" class="level-btn" onclick="setLvl('levelSwimming','avanzado')">Avanzado</button>
-            </div>
-          </div>
-          <div class="field">
-            <label>Nivel en ciclismo</label>
-            <div class="level-group" data-f="levelCycling">
-              <button type="button" class="level-btn" onclick="setLvl('levelCycling','principiante')">Principiante</button>
-              <button type="button" class="level-btn active" onclick="setLvl('levelCycling','intermedio')">Intermedio</button>
-              <button type="button" class="level-btn" onclick="setLvl('levelCycling','avanzado')">Avanzado</button>
-            </div>
-          </div>
-          <div class="field" style="margin-top:10px">
-            <div class="check-field"><input type="checkbox" id="weightGoal"><label for="weightGoal">Tengo objetivo de composición corporal</label></div>
-            <div class="check-field"><input type="checkbox" id="logsAllActivities" checked><label for="logsAllActivities">Logeo todas mis actividades en Garmin</label></div>
-          </div>
-          <div class="field"><label>Disciplinas sin loguear</label><input type="text" id="missingDisciplines" placeholder="Ej: natación en pileta"></div>
-        </div>
-
-        <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:8px">
-          <button class="btn btn-ghost" id="btnSaveProfile" onclick="saveProfileOnly()" style="align-self:flex-end;font-size:12px;padding:5px 12px">💾 Guardar objetivos</button>
-          <button class="btn btn-primary btn-full" id="btnAnalyzeSidebar" onclick="generatePlan2w()">🗓 Generar Plan 2 Semanas →</button>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost btn-full" id="btnHistory" style="flex:1" onclick="analyzeHistory()">📊 Historial</button>
-            <button class="btn btn-ghost btn-full" id="btnMacro" style="flex:1" onclick="generateMacroPlan()">📋 Plan Macro</button>
-            <button class="btn btn-ghost btn-full" id="btnCargarReal" style="flex:1" onclick="cargarReal()" disabled>🔄 Real</button>
-          </div>
-        </div>
-
       </div>
+
+      <div class="sidebar-tab-content" id="sidebarEvolucion">
+        <div class="screen-body">
+          <div class="card">
+            <div class="card-title">🫁 VO2 Max</div>
+            <div id="evoVO2Loading" style="color:var(--muted);font-size:13px;padding:8px 0">Cargando datos de Garmin...</div>
+            <div style="min-height:180px"><canvas id="chartVO2"></canvas></div>
+            <div id="evoVO2Summary" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">🏁 Proyecciones de carrera</div>
+            <div id="evoRaceLoading" style="color:var(--muted);font-size:13px;padding:8px 0">Cargando datos de Garmin...</div>
+            <div style="min-height:200px"><canvas id="chartRace"></canvas></div>
+            <div id="evoRaceSummary" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">💓 FC en actividad</div>
+            <div id="evoHRLoading" style="color:var(--muted);font-size:13px;padding:8px 0">Cargando datos de Garmin...</div>
+            <div style="min-height:200px"><canvas id="chartHR"></canvas></div>
+            <div id="evoHRSummary" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+          </div>
+
+          <div style="text-align:center;padding:8px 0">
+            <select id="evoDaysSelect" onchange="loadMetricsEvolution()" style="background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px">
+              <option value="30">Últimos 30 días</option>
+              <option value="60">Últimos 60 días</option>
+              <option value="90" selected>Últimos 90 días</option>
+              <option value="180">Últimos 180 días</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;padding:10px 16px;flex-shrink:0;border-top:1px solid var(--border)">
+        <button class="btn btn-primary btn-full" id="btnAnalyzeSidebar" onclick="generatePlan2w()">🗓 Generar Plan 2 Semanas →</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-full" id="btnHistory" style="flex:1" onclick="analyzeHistory('detailed')">📊 Historial</button>
+          <button class="btn btn-ghost btn-full" id="btnMacro" style="flex:1" onclick="generateMacroPlan()">📋 Plan Macro</button>
+          <button class="btn btn-ghost btn-full" id="btnCargarReal" style="flex:1" onclick="cargarReal()" disabled>🔄 Real</button>
+        </div>
+      </div>
+
   </div><!-- /objetivos-panel -->
 
   <!-- OUTPUT PANEL -->
@@ -600,7 +734,7 @@ input[type=number]{text-align:center;padding:8px 4px}
       <button class="tab-item" id="tabPlan2w" onclick="showScreen('Plan2w')">🗓 Plan<div class="tab-dot" id="tdotPlan2w"></div></button>
       <button class="tab-item" id="tabCalendar" onclick="showScreen('Calendar')">📅 Calendario<div class="tab-dot" id="tdotCalendar"></div></button>
       <button class="tab-item" id="tabVsReal" onclick="showScreen('VsReal')">⚡ vs Real<div class="tab-dot" id="tdotVsReal"></div></button>
-      <button class="tab-item" id="tabChat" onclick="showScreen('Chat')">💬 Shalo<div class="tab-dot" id="tdotChat"></div></button>
+      <button class="tab-item" id="tabChat" onclick="showScreen('Chat')">💬 <span id="chatTabCoachName">Shalo</span><div class="tab-dot" id="tdotChat"></div></button>
     </nav>
 
     <!-- SCREENS -->
@@ -609,7 +743,11 @@ input[type=number]{text-align:center;padding:8px 4px}
     <!-- ── HISTORIAL ── -->
     <div class="screen" id="screenHistorial">
       <div class="screen-action">
-        <button class="btn btn-primary btn-full" id="btnHistorialAction" onclick="analyzeHistory()">📊 Analizar Historial Garmin</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" style="flex:1;font-size:12px;padding:8px 10px" onclick="analyzeHistory('detailed')">📊 Detallado</button>
+          <button class="btn btn-ghost" style="flex:1;font-size:12px;padding:8px 10px" onclick="analyzeHistory('summary')">📈 Resumen + Gráficas</button>
+          <button class="btn btn-ghost" style="flex:1;font-size:12px;padding:8px 10px" onclick="analyzeHistory('minimal')">⚡ Ultra-breve</button>
+        </div>
       </div>
       <div class="screen-body">
         <div class="status-bar hidden" id="statusHistory"><div class="spinner"></div><span id="statusHistoryMsg">Analizando...</span></div>
@@ -678,7 +816,7 @@ input[type=number]{text-align:center;padding:8px 4px}
       <div id="chatMessages">
         <div class="chat-empty" id="chatEmpty">
           <span style="font-size:44px">💬</span>
-          <strong style="font-size:16px;color:var(--text)">Coach Shalo Gazna</strong>
+          <strong style="font-size:16px;color:var(--text)" id="chatCoachName">Coach Shalo Gazna</strong>
           <span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span>
         </div>
       </div>
@@ -732,7 +870,7 @@ input[type=number]{text-align:center;padding:8px 4px}
       <div class="nav-dot" id="dotVsReal"></div>
     </button>
     <button class="nav-item" id="navChat" onclick="showScreen('Chat')">
-      <span class="nav-icon">💬</span><span>Shalo</span>
+      <span class="nav-icon">💬</span><span id="navChatCoachName">Shalo</span>
       <div class="nav-dot" id="dotChat"></div>
     </button>
   </nav>
@@ -743,6 +881,10 @@ input[type=number]{text-align:center;padding:8px 4px}
 <script>
 // ── State ──────────────────────────────────────────────────────
 let priority = 'A';
+let newGoalPriority = 'B';
+let selectedCoachType = 'shalo';
+let cachedGoals = [];
+let cachedDailyLogs = [];
 const levels = { levelRunning:'intermedio', levelSwimming:'intermedio', levelCycling:'intermedio' };
 const availableDays = { running:[], swimming:[], cycling:[], gym:[] };
 const allSessions = [];
@@ -819,6 +961,8 @@ async function checkSession() {
   await restoreHistoricalAnalysis();
   await restoreMacroPlan();
   await restorePlanVsReal();
+  await loadGoals();
+  await loadDailyLogs();
 }
 
 function clearAllContent() {
@@ -841,7 +985,7 @@ function clearAllContent() {
 
   chatHistory = [];
   chatStreaming = false;
-  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:44px">💬</span><strong style="font-size:16px;color:var(--text)">Coach Shalo Gazna</strong><span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span></div>';
+  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:44px">💬</span><strong style="font-size:16px;color:var(--text)" id="chatCoachName">Coach Shalo Gazna</strong><span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span></div>';
   document.getElementById('chatPlanBanner').classList.add('hidden');
 
   ['_chartVolume','_chartDiscipline','_chartMacro','_chartCompliance'].forEach(k => {
@@ -968,7 +1112,20 @@ document.addEventListener('keydown', e => {
 
 // ── Form helpers ──────────────────────────────────────────────
 function sv(id, vid) { document.getElementById(vid).textContent = document.getElementById(id).value; }
-function setPrio(v) { priority=v; document.querySelectorAll('.prio-btn').forEach(b=>b.classList.toggle('active',b.dataset.p===v)); }
+function setPrio(v) { priority=v; document.querySelectorAll('.prio-btn:not(.new-goal-prio-btn)').forEach(b=>b.classList.toggle('active',b.dataset.p===v)); }
+function setNewGoalPrio(v) { newGoalPriority=v; document.querySelectorAll('.new-goal-prio-btn').forEach(b=>b.classList.toggle('active',b.dataset.p===v)); }
+function setCoachType(type) {
+  selectedCoachType = type;
+  document.querySelectorAll('.coach-btn').forEach(b => b.classList.toggle('active', b.dataset.coach === type));
+  const names = { shalo: 'Coach Shalo Gazna', mego: 'Coach Mego', mecha: 'Coach Mecha' };
+  const nameEl = document.getElementById('chatCoachName');
+  if (nameEl) nameEl.textContent = names[type] || 'Coach Shalo Gazna';
+  const shortNames = { shalo: 'Shalo', mego: 'Mego', mecha: 'Mecha' };
+  const tabName = document.getElementById('chatTabCoachName');
+  if (tabName) tabName.textContent = shortNames[type] || 'Shalo';
+  const navName = document.getElementById('navChatCoachName');
+  if (navName) navName.textContent = shortNames[type] || 'Shalo';
+}
 function setLvl(f,v) { levels[f]=v; document.querySelectorAll(`[data-f="${f}"] .level-btn`).forEach(b=>b.classList.toggle('active',b.textContent.toLowerCase().trim().startsWith(v.slice(0,5)))); }
 function toggleInjury() { document.getElementById('injuryFields').classList.toggle('on', document.getElementById('activeInjury').checked); }
 
@@ -1029,11 +1186,14 @@ function collectData() {
   const v = id => document.getElementById(id)?.value??'';
   const n = id => parseFloat(v(id))||0;
   const b = id => document.getElementById(id)?.checked??false;
+  const primaryGoal = cachedGoals.filter(g => g.priority === 'A').sort((a,b) => (a.eventDate||'').localeCompare(b.eventDate||''))[0] || null;
   const profile = {
     savedAt: new Date().toISOString(),
-    eventName:v('eventName'), eventDistance:v('eventDistance'),
-    eventDate:v('eventDate')||'sin fecha', eventPriority:priority,
-    secondaryObjective:v('secondaryObjective'),
+    eventName: primaryGoal?.eventName || '',
+    eventDistance: primaryGoal?.eventDistance || '',
+    eventDate: primaryGoal?.eventDate || 'sin fecha',
+    eventPriority: primaryGoal?.priority || priority,
+    secondaryObjective: primaryGoal?.comment || '',
     runningDays:n('runningDays'), runningMaxMinutes:n('runningMaxMinutes'), runningAvailableDays:[...availableDays.running],
     swimmingDays:n('swimmingDays'), swimmingMaxMinutes:n('swimmingMaxMinutes'), swimmingAvailableDays:[...availableDays.swimming],
     cyclingDays:n('cyclingDays'), cyclingMaxMinutes:n('cyclingMaxMinutes'), cyclingAvailableDays:[...availableDays.cycling],
@@ -1043,13 +1203,19 @@ function collectData() {
     recentInjuries:v('recentInjuries'),
     levelRunning:levels.levelRunning, levelSwimming:levels.levelSwimming, levelCycling:levels.levelCycling,
     weightGoal:b('weightGoal'), logsAllActivities:b('logsAllActivities'), missingDisciplines:v('missingDisciplines'),
+    goals: cachedGoals,
   };
   const wRaw = parseFloat(v('weight'));
+  const garminBadge = document.getElementById('sleepGarminBadge');
+  const garminScore = document.getElementById('garminSleepScore');
+  const sleepVal = (garminBadge && garminBadge.style.display !== 'none' && garminScore)
+    ? parseFloat(garminScore.textContent) / 10
+    : n('sleepQuality');
   const checkin = {
     date: new Date().toISOString().split('T')[0],
     weight: isNaN(wRaw)?null:wRaw,
     rpeLastSession:n('rpeLastSession'), muscleSoreness:n('muscleSoreness'),
-    motivation:n('motivation'), sleepQuality:n('sleepQuality'), newPainOrIssue:v('newPainOrIssue'),
+    motivation:n('motivation'), sleepQuality:sleepVal, newPainOrIssue:v('newPainOrIssue'),
   };
   return { profile, checkin };
 }
@@ -1212,7 +1378,7 @@ function openSession(idx) {
   document.getElementById('modalDetail').innerHTML = renderSessionDetail(s.detalle || '');
   document.getElementById('sessionModal').classList.remove('hidden');
 }
-function closeModal() { document.getElementById('sessionModal').classList.add('hidden'); }
+function closeModal() { document.getElementById('sessionModal').classList.add('hidden'); document.getElementById('weightModal').classList.add('hidden'); }
 
 // ── Chat ──────────────────────────────────────────────────────
 let chatHistory = [];
@@ -1271,7 +1437,7 @@ async function restoreChatHistory() {
 
 function clearChat() {
   chatHistory = []; chatStreaming = false;
-  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:44px">💬</span><strong style="font-size:16px;color:var(--text)">Coach Shalo Gazna</strong><span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span></div>';
+  document.getElementById('chatMessages').innerHTML = '<div class="chat-empty" id="chatEmpty"><span style="font-size:44px">💬</span><strong style="font-size:16px;color:var(--text)" id="chatCoachName">Coach Shalo Gazna</strong><span>Preguntá sobre tu plan, intensidades,<br>nutrición o recuperación.</span></div>';
   document.getElementById('chatPlanBanner').classList.add('hidden');
   document.getElementById('btnChatSend').disabled = false;
   document.getElementById('chatInput').disabled = false;
@@ -1329,7 +1495,7 @@ async function sendChatMessage() {
   const { profile, checkin } = collectData();
   let fullText = '';
   try {
-    const res = await apiFetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: chatHistory, profile, checkin }) });
+    const res = await apiFetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: chatHistory, profile, checkin, coachType: selectedCoachType }) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
     while (true) {
@@ -1340,7 +1506,8 @@ async function sendChatMessage() {
         if (!line.startsWith('data: ')) continue;
         try {
           const d = JSON.parse(line.slice(6));
-          if (d.type === 'text') { fullText += d.content; asBubble.textContent = fullText; msgs.scrollTop = msgs.scrollHeight; }
+          if (d.type === 'status') { asBubble.innerHTML = `<span style="color:var(--muted);font-size:13px">⏳ ${d.message}</span>`; msgs.scrollTop = msgs.scrollHeight; }
+          else if (d.type === 'text') { if (!fullText) asBubble.textContent = ''; fullText += d.content; asBubble.textContent = fullText; msgs.scrollTop = msgs.scrollHeight; }
           else if (d.type === 'plan_update') {
             renderCalendar(d.plan, false); setNavDot('Calendar', true);
             const banner = document.getElementById('chatPlanBanner');
@@ -1483,7 +1650,7 @@ async function streamSSE(url, body, { onStatus, onText, onDone, onError, onPlanU
 }
 
 // ── analyzeHistory ────────────────────────────────────────────
-async function analyzeHistory() {
+async function analyzeHistory(depth) { depth = depth || 'detailed';
   const statusBar = document.getElementById('statusHistory');
   const statusMsg = document.getElementById('statusHistoryMsg');
   const out = document.getElementById('historyContent');
@@ -1496,7 +1663,7 @@ async function analyzeHistory() {
   const { profile } = collectData();
   let fullText = '';
   try {
-    await streamSSE('/api/analyze-history', { profile }, {
+    await streamSSE('/api/analyze-history', { profile, analysisDepth: depth }, {
       onStatus: m => { statusMsg.textContent = m; },
       onText: t => { fullText += t; out.textContent = fullText; },
       onDone: () => {
@@ -1526,7 +1693,7 @@ async function generateMacroPlan() {
   const { profile } = collectData();
   let fullText = '';
   try {
-    await streamSSE('/api/generate-macro-plan', { profile }, {
+    await streamSSE('/api/generate-macro-plan', { profile, coachType: selectedCoachType }, {
       onStatus: m => { statusMsg.textContent = m; },
       onText: t => { fullText += t; out.textContent = fullText; },
       onDone: () => {
@@ -1573,7 +1740,7 @@ async function generatePlan2w() {
   const { profile, checkin } = collectData();
   let fullText = '';
   try {
-    await streamSSE('/api/analyze', { profile, checkin }, {
+    await streamSSE('/api/analyze', { profile, checkin, coachType: selectedCoachType }, {
       onStatus: m => { statusMsg.textContent = m; },
       onText: t => { fullText += t; out.textContent = fullText; },
       onDone: async () => {
@@ -1626,6 +1793,341 @@ async function cargarReal() {
   } catch (e) { out.className = ''; out.innerHTML = `<div class="error-box">❌ ${e.message}</div>`; statusBar.classList.add('hidden'); }
   [document.getElementById('btnCargarReal'), document.getElementById('btnVsRealAction')].forEach(b => { if(b) b.disabled = false; });
   await refreshPlanStatus();
+}
+
+function showSidebarTab(name) {
+  document.querySelectorAll('.sidebar-tab').forEach((t, i) => {
+    const tabs = ['objetivos','config','estado','evolucion'];
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.sidebar-tab-content').forEach(c => c.classList.remove('active'));
+  const panel = document.getElementById('sidebar' + name.charAt(0).toUpperCase() + name.slice(1));
+  if (panel) panel.classList.add('active');
+  if (name === 'estado') {
+    loadGarminSleep();
+    loadDailyLogs();
+  }
+  if (name === 'evolucion') {
+    loadMetricsEvolution();
+  }
+}
+
+async function loadGoals() {
+  try {
+    const goals = await apiFetch('/api/goals').then(r => r.json());
+    if (!Array.isArray(goals)) return;
+    cachedGoals = goals;
+    renderGoalsList(goals);
+  } catch {}
+}
+
+function renderGoalsList(goals) {
+  const container = document.getElementById('goalsList');
+  if (!goals.length) { container.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:16px">Sin objetivos cargados</div>'; return; }
+  container.innerHTML = goals.map(g => {
+    const prioCls = 'goal-prio-' + (g.priority || 'B');
+    return `<div class="goal-card">
+      <button class="goal-delete" onclick="deleteGoal('${g.id}')">✕</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span class="goal-prio ${prioCls}">${g.priority || 'B'}</span>
+        <strong style="font-size:14px">${esc(g.eventName || '')}</strong>
+      </div>
+      <div style="font-size:12px;color:var(--muted)">${esc(g.eventDate || '')} · ${esc(g.eventDistance || '')}</div>
+      ${g.comment ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(g.comment)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+let pendingGoalData = null;
+
+async function addGoal() {
+  const name = document.getElementById('newGoalName').value.trim();
+  const distance = document.getElementById('newGoalDistance').value.trim();
+  const date = document.getElementById('newGoalDate').value;
+  const comment = document.getElementById('newGoalComment').value.trim();
+  if (!name) return;
+  const goalData = { eventName: name, eventDistance: distance, eventDate: date, priority: newGoalPriority, comment };
+  if (newGoalPriority === 'A') {
+    const existingA = cachedGoals.filter(g => g.priority === 'A');
+    if (existingA.length >= 2) {
+      pendingGoalData = goalData;
+      showTypeAModal(existingA);
+      return;
+    }
+  }
+  await postGoal(goalData);
+}
+
+async function postGoal(goalData) {
+  try {
+    await apiFetch('/api/goals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(goalData) });
+    document.getElementById('newGoalName').value = '';
+    document.getElementById('newGoalDistance').value = '';
+    document.getElementById('newGoalDate').value = '';
+    document.getElementById('newGoalComment').value = '';
+    setNewGoalPrio('B');
+    await loadGoals();
+  } catch {}
+}
+
+async function deleteGoal(id) {
+  try {
+    await apiFetch('/api/goals/' + id, { method: 'DELETE' });
+    await loadGoals();
+  } catch {}
+}
+
+async function downgradeGoal(goalId) {
+  try {
+    await apiFetch('/api/goals/' + goalId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ priority: 'B' }) });
+    await loadGoals();
+  } catch {}
+}
+
+function showTypeAModal(existingA) {
+  const list = document.getElementById('typeAList');
+  list.innerHTML = existingA.map((g, i) => `<div style="padding:8px;margin-bottom:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:10px">
+    <input type="radio" name="downgradeGoal" value="${g.id}" ${i === 0 ? 'checked' : ''} style="accent-color:var(--accent)">
+    <div><strong>${esc(g.eventName || '')}</strong><div style="font-size:12px;color:var(--muted)">${esc(g.eventDate || '')} · ${esc(g.eventDistance || '')}</div></div>
+  </div>`).join('');
+  document.getElementById('typeAModal').classList.remove('hidden');
+}
+
+async function confirmTypeADowngrade() {
+  const selected = document.querySelector('input[name="downgradeGoal"]:checked');
+  if (!selected) return;
+  await downgradeGoal(selected.value);
+  document.getElementById('typeAModal').classList.add('hidden');
+  if (pendingGoalData) {
+    await postGoal(pendingGoalData);
+    pendingGoalData = null;
+  }
+}
+
+async function loadGarminSleep() {
+  try {
+    const data = await apiFetch('/api/garmin-sleep').then(r => r.json());
+    if (data && data.score != null) {
+      document.getElementById('garminSleepScore').textContent = data.score;
+      document.getElementById('sleepGarminBadge').style.display = '';
+      document.getElementById('sleepManualWrap').style.display = 'none';
+    } else {
+      document.getElementById('sleepGarminBadge').style.display = 'none';
+      document.getElementById('sleepManualWrap').style.display = '';
+    }
+  } catch {
+    document.getElementById('sleepGarminBadge').style.display = 'none';
+    document.getElementById('sleepManualWrap').style.display = '';
+  }
+}
+
+async function loadDailyLogs() {
+  try {
+    const logs = await apiFetch('/api/daily-logs').then(r => r.json());
+    if (!Array.isArray(logs)) return;
+    cachedDailyLogs = logs;
+    renderWeightSparkline(logs);
+    const withWeight = logs.filter(l => l.weight != null).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    const info = document.getElementById('lastWeightInfo');
+    if (info && withWeight.length) info.textContent = `${withWeight[0].weight} kg · ${withWeight[0].date}`;
+  } catch {}
+}
+
+async function saveDailyLog() {
+  const v = id => document.getElementById(id)?.value ?? '';
+  const n = id => parseFloat(v(id)) || 0;
+  const wRaw = parseFloat(v('weight'));
+  const garminBadge = document.getElementById('sleepGarminBadge');
+  const garminScore = document.getElementById('garminSleepScore');
+  const isGarminSleep = garminBadge && garminBadge.style.display !== 'none' && garminScore;
+  const sleepScore = isGarminSleep ? parseFloat(garminScore.textContent) : n('sleepQuality');
+  const sleepSource = isGarminSleep ? 'garmin' : 'manual';
+  const log = {
+    date: new Date().toISOString().split('T')[0],
+    weight: isNaN(wRaw) ? null : wRaw,
+    sleepScore: sleepScore || null,
+    sleepSource,
+    rpe: n('rpeLastSession') || null,
+    soreness: n('muscleSoreness') || null,
+    motivation: n('motivation') || null,
+    pain: v('newPainOrIssue'),
+  };
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    await apiFetch('/api/daily-logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(log) });
+    await loadDailyLogs();
+    if (btn) { btn.textContent = '✅ Guardado'; setTimeout(() => { btn.textContent = '💾 Guardar estado del día'; btn.disabled = false; }, 2000); }
+  } catch {
+    if (btn) { btn.textContent = '❌ Error'; setTimeout(() => { btn.textContent = '💾 Guardar estado del día'; btn.disabled = false; }, 2000); }
+  }
+}
+
+function renderWeightSparkline(logs) {
+  const canvas = document.getElementById('chartWeightSparkline');
+  if (!canvas) return;
+  const withWeight = logs.filter(l => l.weight != null).sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  if (window._chartWeightSparkline) { window._chartWeightSparkline.destroy(); window._chartWeightSparkline = null; }
+  if (!withWeight.length) return;
+  const ctx = canvas.getContext('2d');
+  window._chartWeightSparkline = new Chart(ctx, {
+    type: 'line',
+    data: { labels: withWeight.map(l => l.date), datasets: [{ data: withWeight.map(l => l.weight), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,.1)', fill: true, tension: .3, pointRadius: 2, borderWidth: 1.5 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: true } }, scales: { x: { display: false }, y: { display: false } } },
+  });
+}
+
+function showWeightModal() {
+  document.getElementById('weightModal').classList.remove('hidden');
+  renderWeightFullChart(cachedDailyLogs);
+}
+
+function closeWeightModal() {
+  document.getElementById('weightModal').classList.add('hidden');
+}
+
+let _metricsCache = null;
+let _metricsLoading = false;
+
+async function loadMetricsEvolution() {
+  if (_metricsLoading) return;
+  const days = document.getElementById('evoDaysSelect')?.value ?? '90';
+  _metricsLoading = true;
+  ['VO2','Race','HR'].forEach(k => {
+    const el = document.getElementById('evo' + k + 'Loading');
+    if (el) el.style.display = '';
+  });
+  try {
+    const data = await apiFetch('/api/metrics-evolution?days=' + days).then(r => r.json());
+    _metricsCache = data;
+    renderVO2Chart(data.vo2max || []);
+    renderRaceChart(data.racePredictions || []);
+    renderHRChart(data.activityHR || []);
+  } catch (e) {
+    ['VO2','Race','HR'].forEach(k => {
+      const el = document.getElementById('evo' + k + 'Loading');
+      if (el) { el.style.display = ''; el.textContent = 'Error cargando datos'; }
+    });
+  } finally {
+    _metricsLoading = false;
+  }
+}
+
+function renderVO2Chart(data) {
+  document.getElementById('evoVO2Loading').style.display = 'none';
+  const canvas = document.getElementById('chartVO2');
+  if (!canvas) return;
+  if (window._chartVO2) { window._chartVO2.destroy(); window._chartVO2 = null; }
+  if (!data.length) { document.getElementById('evoVO2Summary').textContent = 'Sin datos de VO2 Max en el período'; return; }
+  const ctx = canvas.getContext('2d');
+  window._chartVO2 = new Chart(ctx, {
+    type: 'line',
+    data: { labels: data.map(d => d.date), datasets: [{
+      label: 'VO2 Max (ml/kg/min)', data: data.map(d => d.value),
+      borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.1)', fill: true,
+      tension: .3, pointRadius: 3, borderWidth: 2
+    }]},
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e6edf3' } } }, scales: { x: { ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#30363d' } }, y: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } } } }
+  });
+  const first = data[0].value, last = data[data.length - 1].value;
+  const diff = (last - first).toFixed(1);
+  const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+  document.getElementById('evoVO2Summary').textContent = `${first} → ${last} (${arrow} ${Math.abs(diff)}) en ${data.length} mediciones`;
+}
+
+function fmtRaceTime(seconds) {
+  if (!seconds) return '--';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function renderRaceChart(data) {
+  document.getElementById('evoRaceLoading').style.display = 'none';
+  const canvas = document.getElementById('chartRace');
+  if (!canvas) return;
+  if (window._chartRace) { window._chartRace.destroy(); window._chartRace = null; }
+  const valid = data.filter(d => d.five || d.ten || d.half || d.full);
+  if (!valid.length) { document.getElementById('evoRaceSummary').textContent = 'Sin datos de predicciones en el período'; return; }
+  const ctx = canvas.getContext('2d');
+  const colors = { '5K': '#22c55e', '10K': '#f97316', '21K': '#a855f7', '42K': '#ef4444' };
+  const datasets = [
+    { label: '5K', data: valid.map(d => d.five), borderColor: colors['5K'], backgroundColor: 'transparent', tension: .3, pointRadius: 2, borderWidth: 2 },
+    { label: '10K', data: valid.map(d => d.ten), borderColor: colors['10K'], backgroundColor: 'transparent', tension: .3, pointRadius: 2, borderWidth: 2 },
+    { label: '21K', data: valid.map(d => d.half), borderColor: colors['21K'], backgroundColor: 'transparent', tension: .3, pointRadius: 2, borderWidth: 2 },
+    { label: '42K', data: valid.map(d => d.full), borderColor: colors['42K'], backgroundColor: 'transparent', tension: .3, pointRadius: 2, borderWidth: 2 },
+  ];
+  window._chartRace = new Chart(ctx, {
+    type: 'line',
+    data: { labels: valid.map(d => d.date), datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#e6edf3' } }, tooltip: {
+        callbacks: { label: (ctx) => ctx.dataset.label + ': ' + fmtRaceTime(ctx.raw) }
+      }},
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#30363d' } },
+        y: { reverse: true, ticks: { color: '#8b949e', callback: (v) => fmtRaceTime(v) }, grid: { color: '#30363d' } }
+      }
+    }
+  });
+  const last = valid[valid.length - 1];
+  document.getElementById('evoRaceSummary').textContent = `Última predicción — 5K: ${fmtRaceTime(last.five)} | 10K: ${fmtRaceTime(last.ten)} | 21K: ${fmtRaceTime(last.half)} | 42K: ${fmtRaceTime(last.full)}`;
+}
+
+function renderHRChart(data) {
+  document.getElementById('evoHRLoading').style.display = 'none';
+  const canvas = document.getElementById('chartHR');
+  if (!canvas) return;
+  if (window._chartHR) { window._chartHR.destroy(); window._chartHR = null; }
+  if (!data.length) { document.getElementById('evoHRSummary').textContent = 'Sin datos de FC en el período'; return; }
+  const ctx = canvas.getContext('2d');
+  const types = [...new Set(data.map(d => d.type))];
+  const typeColors = { running: '#22c55e', cycling: '#3b82f6', swimming: '#06b6d4', trail_running: '#84cc16', walking: '#f97316', strength_training: '#a855f7' };
+  const bgColors = data.map(d => {
+    const t = String(d.type).toLowerCase();
+    for (const [k, c] of Object.entries(typeColors)) { if (t.includes(k)) return c; }
+    return '#8b949e';
+  });
+  window._chartHR = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.date),
+      datasets: [{
+        label: 'FC promedio', data: data.map(d => d.avgHR),
+        backgroundColor: bgColors.map(c => c + '99'), borderColor: bgColors, borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => { const d = data[ctx.dataIndex]; return `${d.name || d.type}: ${d.avgHR} bpm` + (d.maxHR ? ` (max: ${d.maxHR})` : ''); } } }
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 9 }, maxRotation: 60 }, grid: { color: '#30363d' } },
+        y: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' }, title: { display: true, text: 'BPM', color: '#8b949e' } }
+      }
+    }
+  });
+  const avgAll = Math.round(data.reduce((s, d) => s + d.avgHR, 0) / data.length);
+  const legend = types.slice(0, 5).map(t => { const tl = String(t).toLowerCase(); for (const [k, c] of Object.entries(typeColors)) { if (tl.includes(k)) return `<span style="color:${c}">●</span> ${t}`; } return `<span style="color:#8b949e">●</span> ${t}`; }).join(' &nbsp; ');
+  document.getElementById('evoHRSummary').innerHTML = `FC promedio general: ${avgAll} bpm &nbsp;|&nbsp; ${data.length} actividades &nbsp; ${legend}`;
+}
+
+function renderWeightFullChart(logs) {
+  const canvas = document.getElementById('chartWeightFull');
+  if (!canvas) return;
+  const withWeight = logs.filter(l => l.weight != null).sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  if (window._chartWeightFull) { window._chartWeightFull.destroy(); window._chartWeightFull = null; }
+  if (!withWeight.length) return;
+  const ctx = canvas.getContext('2d');
+  window._chartWeightFull = new Chart(ctx, {
+    type: 'line',
+    data: { labels: withWeight.map(l => l.date), datasets: [{ label: 'Peso (kg)', data: withWeight.map(l => l.weight), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,.1)', fill: true, tension: .3, pointRadius: 3, borderWidth: 2 }] },
+    options: { responsive: true, plugins: { legend: { labels: { color: '#e6edf3' } } }, scales: { x: { ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#30363d' } }, y: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } } } },
+  });
 }
 </script>
 </body>

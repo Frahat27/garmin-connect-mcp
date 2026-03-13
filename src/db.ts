@@ -2,7 +2,7 @@ import pg from 'pg';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, randomUUID } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import type { AthleteProfile } from './coach/types';
+import type { AthleteProfile, Goal, DailyLog } from './coach/types';
 import type { StoredPlan } from './coach/plan-store';
 
 const { Pool } = pg;
@@ -94,6 +94,30 @@ export async function initDb(): Promise<void> {
       oauth2_token JSONB,
       garmin_profile JSONB,
       updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS goals (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      event_name TEXT NOT NULL,
+      event_distance TEXT,
+      event_date TEXT,
+      priority TEXT NOT NULL DEFAULT 'B',
+      comment TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS daily_logs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      weight REAL,
+      sleep_score REAL,
+      sleep_source TEXT,
+      rpe REAL,
+      soreness REAL,
+      motivation REAL,
+      pain TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, date)
     );
   `);
   console.error('[db] Tables ready');
@@ -252,6 +276,81 @@ export async function populateTokenDir(userId: string, dir: string): Promise<voi
   if (o1) writeFileSync(join(dir, 'oauth1_token.json'), JSON.stringify(o1));
   if (o2) writeFileSync(join(dir, 'oauth2_token.json'), JSON.stringify(o2));
   if (p) writeFileSync(join(dir, 'profile.json'), JSON.stringify(p));
+}
+
+export async function dbGetGoals(userId: string): Promise<Goal[]> {
+  const res = await pool.query<{
+    id: string; event_name: string; event_distance: string;
+    event_date: string; priority: string; comment: string;
+  }>('SELECT id, event_name, event_distance, event_date, priority, comment FROM goals WHERE user_id = $1 ORDER BY event_date ASC', [userId]);
+  return res.rows.map(r => ({
+    id: r.id,
+    eventName: r.event_name,
+    eventDistance: r.event_distance ?? '',
+    eventDate: r.event_date ?? '',
+    priority: r.priority as Goal['priority'],
+    comment: r.comment ?? '',
+  }));
+}
+
+export async function dbSaveGoal(userId: string, goal: Omit<Goal, 'id'>): Promise<Goal> {
+  const res = await pool.query<{ id: string }>(
+    `INSERT INTO goals (user_id, event_name, event_distance, event_date, priority, comment)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [userId, goal.eventName, goal.eventDistance, goal.eventDate, goal.priority, goal.comment],
+  );
+  return { id: res.rows[0].id, ...goal };
+}
+
+export async function dbUpdateGoal(goalId: string, updates: Partial<Omit<Goal, 'id'>>): Promise<void> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 1;
+  if (updates.eventName !== undefined) { sets.push(`event_name = $${i++}`); vals.push(updates.eventName); }
+  if (updates.eventDistance !== undefined) { sets.push(`event_distance = $${i++}`); vals.push(updates.eventDistance); }
+  if (updates.eventDate !== undefined) { sets.push(`event_date = $${i++}`); vals.push(updates.eventDate); }
+  if (updates.priority !== undefined) { sets.push(`priority = $${i++}`); vals.push(updates.priority); }
+  if (updates.comment !== undefined) { sets.push(`comment = $${i++}`); vals.push(updates.comment); }
+  if (sets.length === 0) return;
+  vals.push(goalId);
+  await pool.query(`UPDATE goals SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+}
+
+export async function dbDeleteGoal(goalId: string): Promise<void> {
+  await pool.query('DELETE FROM goals WHERE id = $1', [goalId]);
+}
+
+export async function dbGetDailyLogs(userId: string, limit = 90): Promise<DailyLog[]> {
+  const res = await pool.query<{
+    date: string; weight: number | null; sleep_score: number | null;
+    sleep_source: string | null; rpe: number | null; soreness: number | null;
+    motivation: number | null; pain: string | null;
+  }>('SELECT date, weight, sleep_score, sleep_source, rpe, soreness, motivation, pain FROM daily_logs WHERE user_id = $1 ORDER BY date DESC LIMIT $2', [userId, limit]);
+  return res.rows.map(r => ({
+    date: typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0],
+    weight: r.weight,
+    sleepScore: r.sleep_score,
+    sleepSource: r.sleep_source as DailyLog['sleepSource'],
+    rpe: r.rpe,
+    soreness: r.soreness,
+    motivation: r.motivation,
+    pain: r.pain ?? '',
+  }));
+}
+
+export async function dbSaveDailyLog(userId: string, log: DailyLog): Promise<void> {
+  await pool.query(`
+    INSERT INTO daily_logs (user_id, date, weight, sleep_score, sleep_source, rpe, soreness, motivation, pain)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (user_id, date) DO UPDATE SET
+      weight = COALESCE($3, daily_logs.weight),
+      sleep_score = COALESCE($4, daily_logs.sleep_score),
+      sleep_source = COALESCE($5, daily_logs.sleep_source),
+      rpe = COALESCE($6, daily_logs.rpe),
+      soreness = COALESCE($7, daily_logs.soreness),
+      motivation = COALESCE($8, daily_logs.motivation),
+      pain = COALESCE(NULLIF($9, ''), daily_logs.pain)
+  `, [userId, log.date, log.weight, log.sleepScore, log.sleepSource, log.rpe, log.soreness, log.motivation, log.pain]);
 }
 
 export async function saveTokensFromDir(userId: string, dir: string): Promise<void> {
